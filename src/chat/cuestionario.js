@@ -1,81 +1,94 @@
 // Cuestionario base de relevamiento del punto de venta.
 //
 // Es el que se le hace a TODOS los clientes al terminar la visita. Las
-// preguntas especiales que genera el motor de reglas se agregan despues de
-// estas.
+// preguntas especiales que genera el motor de reglas se agregan despues.
 //
 // tipo:
-//   opciones -> el vendedor responde con el numero de la opcion
+//   opciones -> se manda como botonera de WhatsApp (o lista, si son mas de 3)
 //   texto    -> respuesta libre
 //   numero   -> se valida que sea numerico
 //   foto     -> acepta imagen (o "saltar")
 //
 // obligatoria: si es false, el vendedor puede escribir SALTAR.
+//
+// IMPORTANTE: los titulos de las opciones no pueden pasar de 20 caracteres.
+// Es el limite de los botones de WhatsApp; si se pasan, Meta rechaza el mensaje.
+
+export const LARGO_MAXIMO_OPCION = 20;
 
 export const CUESTIONARIO_BASE = [
   {
     id: 'contacto',
-    texto: '¿Con quien hablaste? Nombre y cargo.',
+    texto: '¿Con quién hablaste? Nombre y cargo.',
     tipo: 'texto',
     obligatoria: true,
+    // Pista para la extraccion automatica desde el audio.
+    busca: 'nombre y cargo de la persona con la que hablo el vendedor',
   },
   {
     id: 'resultado',
-    texto: '¿Como salio la visita?',
+    texto: '¿Cómo salió la visita?',
     tipo: 'opciones',
     opciones: [
-      'Cerre pedido',
-      'Quedo cotizacion pendiente',
-      'Solo relevamiento / seguimiento',
+      'Cerré pedido',
+      'Cotización pendiente',
+      'Solo relevamiento',
       'No me atendieron',
-      'Visita fallida (cerrado, mudado)',
+      'Visita fallida',
     ],
     obligatoria: true,
+    busca: 'resultado concreto de la visita',
   },
   {
     id: 'stock_facbsa',
-    texto: '¿Que stock nuestro tienen hoy en el punto de venta?',
+    texto: '¿Qué stock nuestro tienen hoy en el punto de venta?',
     tipo: 'opciones',
     opciones: ['Bien surtido', 'Stock justo', 'Casi sin stock', 'Sin stock nuestro', 'No pude verlo'],
     obligatoria: true,
+    busca: 'cuanto stock de FACBSA hay en el cliente',
   },
   {
     id: 'competencia',
-    texto: '¿Que marcas de la competencia viste en el mostrador o deposito? Si no viste ninguna, escribi NINGUNA.',
+    texto: '¿Qué marcas de la competencia viste en el mostrador o depósito? Si no viste ninguna, escribí NINGUNA.',
     tipo: 'texto',
     obligatoria: true,
+    busca: 'marcas de la competencia presentes en el cliente',
   },
   {
     id: 'precio_percibido',
-    texto: '¿Como ven nuestro precio frente a la competencia?',
+    texto: '¿Cómo ven nuestro precio frente a la competencia?',
     tipo: 'opciones',
-    opciones: ['Mas barato', 'Parecido', 'Un poco mas caro', 'Mucho mas caro', 'No se hablo de precio'],
+    opciones: ['Más barato', 'Parecido', 'Un poco más caro', 'Mucho más caro', 'No se habló'],
     obligatoria: true,
+    busca: 'como percibe el cliente el precio de FACBSA contra la competencia',
   },
   {
     id: 'exhibicion',
-    texto: '¿Tienen material nuestro a la vista (cartel, folleteria, exhibidor)?',
+    texto: '¿Tienen material nuestro a la vista (cartel, folletería, exhibidor)?',
     tipo: 'opciones',
-    opciones: ['Si, bien exhibido', 'Algo, pero poco', 'Nada'],
+    opciones: ['Sí, bien exhibido', 'Algo, pero poco', 'Nada'],
     obligatoria: true,
+    busca: 'si hay cartelería o material de FACBSA a la vista',
   },
   {
     id: 'foto',
-    texto: 'Mandame una foto del punto de venta o de la gondola. Si no pudiste sacarla, escribi SALTAR.',
+    texto: 'Mandame una foto del punto de venta o de la góndola. Si no pudiste sacarla, escribí SALTAR.',
     tipo: 'foto',
     obligatoria: false,
   },
   {
     id: 'proximo_paso',
-    texto: '¿Cual es el proximo paso concreto y para cuando? (ej: "mandar cotizacion de 200 jabalinas el lunes")',
+    texto: '¿Cuál es el próximo paso concreto y para cuándo? (ej: "mandar cotización de 200 jabalinas el lunes")',
     tipo: 'texto',
     obligatoria: true,
+    busca: 'proximo paso comprometido y su fecha',
   },
   {
     id: 'observaciones',
-    texto: 'Ultima: ¿algo mas que la oficina tenga que saber? Si no, escribi NO.',
+    texto: 'Última: ¿algo más que la oficina tenga que saber? Si no, escribí NO.',
     tipo: 'texto',
     obligatoria: false,
+    busca: 'cualquier otro dato relevante que haya mencionado',
   },
 ];
 
@@ -96,6 +109,7 @@ export function armarCuestionario(preguntasEspeciales = []) {
     obligatoria: true,
     origen: 'especial',
     reglaId: p.id,
+    busca: p.pregunta,
   }));
 
   const cierre = CUESTIONARIO_BASE.filter((p) => p.id === 'foto' || p.id === 'observaciones').map(
@@ -105,7 +119,15 @@ export function armarCuestionario(preguntasEspeciales = []) {
   return [...base, ...especiales, ...cierre];
 }
 
-// Formatea una pregunta para mandarla por WhatsApp.
+// --- Presentacion ------------------------------------------------------------
+
+/**
+ * Convierte una pregunta en un mensaje listo para mandar.
+ * Devuelve { texto, botones? , lista? }:
+ *   hasta 3 opciones -> botonera (interactive/button)
+ *   4 a 10 opciones  -> lista desplegable (interactive/list)
+ * El transporte (WhatsApp o simulador) decide como renderizarlo.
+ */
 export function formatearPregunta(pregunta, indice, total) {
   const L = [`*${indice}/${total}* · ${pregunta.texto}`];
 
@@ -113,27 +135,42 @@ export function formatearPregunta(pregunta, indice, total) {
     L.push('');
     L.push(`_${pregunta.contexto}_`);
   }
-
-  if (pregunta.tipo === 'opciones' && pregunta.opciones) {
-    L.push('');
-    pregunta.opciones.forEach((op, i) => L.push(`*${i + 1}.* ${op}`));
-    L.push('');
-    L.push('_Respondé con el número._');
-  }
-
   if (!pregunta.obligatoria) {
     L.push('');
     L.push('_Podés escribir SALTAR para omitirla._');
   }
 
-  return L.join('\n');
+  const mensaje = { texto: L.join('\n') };
+
+  if (pregunta.tipo === 'opciones' && pregunta.opciones?.length) {
+    const filas = pregunta.opciones.map((op, i) => ({ id: `op_${i + 1}`, titulo: op }));
+    if (filas.length <= 3) {
+      mensaje.botones = filas;
+    } else {
+      mensaje.lista = { boton: 'Elegir', filas };
+    }
+  }
+
+  return mensaje;
 }
 
-// Valida y normaliza lo que contesto el vendedor.
-// Devuelve { ok, valor, respuesta, error }
+// --- Validacion --------------------------------------------------------------
+
+/**
+ * Valida y normaliza lo que contesto el vendedor.
+ * `entrada` puede traer texto, una foto, o el id de un boton (opcionId).
+ * Devuelve { ok, valor, respuesta, error }
+ */
 export function validarRespuesta(pregunta, entrada) {
   const texto = String(entrada?.texto ?? '').trim();
   const esFoto = entrada?.tipo === 'image';
+
+  // Respuesta por boton o por lista: viene el id, no hay ambigüedad.
+  if (entrada?.opcionId && pregunta.tipo === 'opciones') {
+    const indice = Number(String(entrada.opcionId).replace('op_', ''));
+    const opcion = pregunta.opciones?.[indice - 1];
+    if (opcion) return { ok: true, valor: opcion, respuesta: opcion };
+  }
 
   const pidioSaltar = /^(saltar|omitir|paso|-)$/i.test(texto);
 
@@ -155,40 +192,38 @@ export function validarRespuesta(pregunta, entrada) {
   if (pregunta.tipo === 'foto') {
     if (esFoto) return { ok: true, valor: 'foto', respuesta: entrada.caption || '(foto)' };
     if (texto) return { ok: true, valor: null, respuesta: texto };
-    return { ok: false, error: 'Mandame la foto o escribi SALTAR.' };
+    return { ok: false, error: 'Mandame la foto o escribí SALTAR.' };
   }
 
   if (!texto) {
-    return { ok: false, error: 'No me llego texto. Probá de nuevo.' };
+    return { ok: false, error: 'No me llegó texto. Probá de nuevo.' };
   }
 
   if (pregunta.tipo === 'opciones') {
+    // Aunque haya botonera, algunos vendedores contestan escribiendo. Aceptamos
+    // el numero de opcion y tambien el texto de la opcion.
     const numero = Number(texto);
     if (Number.isInteger(numero) && numero >= 1 && numero <= pregunta.opciones.length) {
       const opcion = pregunta.opciones[numero - 1];
       return { ok: true, valor: opcion, respuesta: opcion };
     }
-    // Tambien aceptamos que escriba la opcion con palabras.
     const coincidencia = pregunta.opciones.find((op) =>
       op.toLowerCase().includes(texto.toLowerCase())
     );
     if (coincidencia && texto.length >= 3) {
       return { ok: true, valor: coincidencia, respuesta: coincidencia };
     }
-    return {
-      ok: false,
-      error: `Respondeme con un numero del 1 al ${pregunta.opciones.length}.`,
-    };
+    return { ok: false, error: 'Elegí una de las opciones de arriba.' };
   }
 
   if (pregunta.tipo === 'numero') {
     const numero = Number(texto.replace(/\./g, '').replace(',', '.'));
-    if (Number.isNaN(numero)) return { ok: false, error: 'Necesito un numero.' };
+    if (Number.isNaN(numero)) return { ok: false, error: 'Necesito un número.' };
     return { ok: true, valor: String(numero), respuesta: texto };
   }
 
   if (texto.length < 2) {
-    return { ok: false, error: 'Contame un poco mas, con una palabra no alcanza.' };
+    return { ok: false, error: 'Contame un poco más, con una palabra no alcanza.' };
   }
 
   return { ok: true, valor: null, respuesta: texto };

@@ -46,6 +46,11 @@ WHATSAPP_VERIFY_TOKEN=facbsa-verificacion-2026
 WHATSAPP_APP_SECRET=a1b2c3...
 ADMIN_KEY=una-clave-larga-para-el-panel
 SIMULADOR=false
+
+# Para que entienda lenguaje natural y escuche los audios
+ANTHROPIC_API_KEY=sk-ant-...
+TRANSCRIPCION_PROVEEDOR=openai
+TRANSCRIPCION_API_KEY=sk-...
 ```
 
 `WHATSAPP_VERIFY_TOKEN` es un valor que se inventa acá y se pega igual en Meta
@@ -82,7 +87,9 @@ de menor a mayor esfuerzo:
 4. Clic en **Verificar y guardar**. Meta hace un GET a esa URL y el servidor le
    responde el challenge; si falla, revisar que el servidor esté levantado y que
    el token coincida exactamente.
-5. En **Campos del webhook**, suscribirse a **messages**.
+5. En **Campos del webhook**, suscribirse a **messages**. Con ese único campo
+   llegan los mensajes de texto, las notas de voz, las fotos y las respuestas
+   de la botonera.
 
 ---
 
@@ -93,7 +100,10 @@ de menor a mayor esfuerzo:
    node scripts/vendedores.js alta 5491155667788 "Tu Nombre" "FACBSA"
    ```
 2. Mandarle un `hola` por WhatsApp al número de la app.
-3. Tiene que contestar el saludo y pedir el cliente.
+3. Tiene que contestar el saludo y preguntarte a qué cliente vas.
+4. Probá el circuito completo: decile un cliente, después mandale una nota de voz
+   contándole una visita inventada y fijate que registre lo que dijiste y que te
+   repregunte lo que falte con botones.
 
 Si no contesta, mirar la consola del servidor: los errores de envío de Meta se
 loguean con el detalle completo.
@@ -112,6 +122,19 @@ loguean con el detalle completo.
   periódicamente alcanza como respaldo.
 
 ---
+
+## Sobre la botonera
+
+Las preguntas de opción cerrada se mandan como mensajes interactivos de Meta:
+hasta 3 opciones salen como botones, de 4 a 10 como lista desplegable. Los
+límites de la API los aplica `src/whatsapp/meta.js` y hay una prueba que verifica
+que ninguna opción del cuestionario supere los 20 caracteres del título de un
+botón. Si se agregan opciones nuevas más largas, la prueba falla antes de que
+Meta rechace el mensaje en producción.
+
+Los mensajes interactivos tienen un cuerpo de 1024 caracteres como máximo. La
+ficha del cliente es más larga, así que se manda como texto suelto y la botonera
+va aparte: eso ya está resuelto en el código.
 
 ## Costos (referencia)
 

@@ -42,6 +42,23 @@ export const config = {
     version: process.env.WHATSAPP_API_VERSION || 'v21.0',
   },
 
+  // Agente conversacional (Claude). Sin clave, el bot cae al modo guiado.
+  ia: {
+    clave: process.env.ANTHROPIC_API_KEY || '',
+    modelo: process.env.ANTHROPIC_MODEL || 'claude-opus-5',
+    // Este es un caso simple de conversacion y extraccion: con esfuerzo bajo
+    // contesta rapido y sale mas barato. Subirlo a 'medium' si se lo ve flojo.
+    esfuerzo: process.env.ANTHROPIC_EFFORT || 'low',
+  },
+
+  // Transcripcion de las notas de voz. Claude no procesa audio, asi que esta
+  // parte la hace un servicio de speech-to-text aparte.
+  transcripcion: {
+    proveedor: process.env.TRANSCRIPCION_PROVEEDOR || 'ninguno', // openai | deepgram | ninguno
+    clave: process.env.TRANSCRIPCION_API_KEY || '',
+    modelo: process.env.TRANSCRIPCION_MODELO || '',
+  },
+
   // El simulador web permite probar el chat completo sin cuenta de Meta.
   simuladorHabilitado: (process.env.SIMULADOR || 'true') !== 'false',
 
@@ -55,3 +72,7 @@ export const config = {
 export const whatsappConfigurado = Boolean(
   config.whatsapp.token && config.whatsapp.phoneNumberId
 );
+
+// Sin clave de Claude el bot sigue andando, pero en modo guiado: pregunta de a
+// una, sin entender lenguaje natural ni audios.
+export const iaConfigurada = Boolean(config.ia.clave);

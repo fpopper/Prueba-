@@ -166,3 +166,35 @@ CREATE TABLE IF NOT EXISTS mensajes_procesados (
   wa_message_id     TEXT PRIMARY KEY,
   procesado_en      TEXT DEFAULT (datetime('now'))
 );
+
+-- ---------------------------------------------------------------------------
+-- Modo conversacional (agente de IA)
+-- ---------------------------------------------------------------------------
+
+-- Historia de la conversacion con el agente. Se guarda en la base para que el
+-- vendedor pueda seguir donde estaba aunque se reinicie el servidor.
+CREATE TABLE IF NOT EXISTS turnos (
+  id                INTEGER PRIMARY KEY,
+  telefono          TEXT NOT NULL,
+  visita_id         INTEGER,
+  rol               TEXT NOT NULL,       -- 'user' | 'assistant'
+  contenido         TEXT NOT NULL,       -- JSON con los bloques del mensaje
+  creado_en         TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_turnos_telefono ON turnos(telefono, id);
+
+-- Transcripciones de los audios, guardadas aparte del relevamiento para poder
+-- auditar que dijo el vendedor y que entendio el agente.
+CREATE TABLE IF NOT EXISTS transcripciones (
+  id                INTEGER PRIMARY KEY,
+  visita_id         INTEGER REFERENCES visitas(id) ON DELETE CASCADE,
+  telefono          TEXT NOT NULL,
+  media_id          TEXT,
+  segundos          REAL,
+  texto             TEXT,
+  proveedor         TEXT,
+  creado_en         TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_transcripciones_visita ON transcripciones(visita_id);

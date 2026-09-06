@@ -12,11 +12,12 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { config, whatsappConfigurado, RAIZ } from './config.js';
+import { config, whatsappConfigurado, iaConfigurada, RAIZ } from './config.js';
 import { abrirDb, consultar } from './db/db.js';
-import { atenderMensaje } from './chat/gestor.js';
-import { extraerMensajes, firmaValida, enviarTexto, marcarLeido } from './whatsapp/meta.js';
+import { atenderMensaje, modoActual } from './chat/gestor.js';
+import { extraerMensajes, firmaValida, enviarMensaje, marcarLeido } from './whatsapp/meta.js';
 import { contextoEmpresa } from './db/queries.js';
+import { transcripcionDisponible } from './ia/transcribir.js';
 import { formatearFecha } from './negocio/ficha-cliente.js';
 
 const db = abrirDb();
@@ -34,10 +35,19 @@ const servidor = http.createServer(async (req, res) => {
 async function enrutar(req, res, url) {
   const ruta = url.pathname;
 
+  // Evita el 404 del navegador pidiendo el icono.
+  if (ruta === '/favicon.ico') {
+    res.writeHead(204);
+    return res.end();
+  }
+
   if (ruta === '/salud') {
     return responder(res, 200, {
       ok: true,
+      modo: modoActual(),
       whatsapp: whatsappConfigurado ? 'configurado' : 'sin credenciales',
+      agente: iaConfigurada ? config.ia.modelo : 'sin clave (modo guiado)',
+      transcripcion: transcripcionDisponible() ? config.transcripcion.proveedor : 'no disponible',
       simulador: config.simuladorHabilitado,
       datos: contextoEmpresa(db),
     });
@@ -49,6 +59,12 @@ async function enrutar(req, res, url) {
   if (ruta === '/' || ruta === '/simulador') return servirSimulador(res);
   if (ruta === '/api/simulador' && req.method === 'POST') return mensajeSimulado(req, res);
   if (ruta === '/api/vendedores') return responder(res, 200, listarVendedores());
+  if (ruta === '/api/config') {
+    return responder(res, 200, {
+      modo: modoActual(),
+      audio: transcripcionDisponible(),
+    });
+  }
 
   if (ruta === '/panel') return servirPanel(res, url);
   if (ruta === '/api/visitas.csv') return exportarCsv(res, url);
@@ -95,10 +111,12 @@ async function recibirWebhook(req, res) {
 
   for (const mensaje of extraerMensajes(cuerpo)) {
     try {
-      marcarLeido(mensaje.waMessageId);
-      const respuestas = atenderMensaje(db, mensaje);
+      // Un audio tarda unos segundos en transcribirse: le mostramos
+      // "escribiendo..." para que el vendedor sepa que lo estamos procesando.
+      await marcarLeido(mensaje.waMessageId, mensaje.esAudio);
+      const respuestas = await atenderMensaje(db, mensaje);
       for (const r of respuestas) {
-        await enviarTexto(mensaje.telefono, r.texto);
+        await enviarMensaje(mensaje.telefono, r);
       }
     } catch (error) {
       console.error('[webhook] error atendiendo mensaje:', error);
@@ -120,10 +138,15 @@ async function mensajeSimulado(req, res) {
   if (!config.simuladorHabilitado) return responder(res, 404, { error: 'simulador deshabilitado' });
   const cuerpo = JSON.parse((await leerCuerpo(req)) || '{}');
 
-  const respuestas = atenderMensaje(db, {
+  const respuestas = await atenderMensaje(db, {
     telefono: cuerpo.telefono,
     texto: cuerpo.texto || '',
     tipo: cuerpo.tipo || 'text',
+    opcionId: cuerpo.opcionId || null,
+    esAudio: cuerpo.tipo === 'audio',
+    // El simulador manda el audio grabado en el navegador, en base64.
+    audio: cuerpo.audio ? Buffer.from(cuerpo.audio, 'base64') : null,
+    mimeAudio: cuerpo.mimeAudio || 'audio/webm',
     mediaId: cuerpo.tipo === 'image' ? 'simulada' : null,
     waMessageId: `sim_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
   });
@@ -253,10 +276,23 @@ function escapar(texto) {
 
 // --- Utilidades --------------------------------------------------------------
 
+// Tope de tamaño del cuerpo. Un audio de dos minutos en base64 entra holgado;
+// mas que esto es alguien mandando cualquier cosa.
+const MAXIMO_CUERPO = 25 * 1024 * 1024;
+
 function leerCuerpo(req) {
   return new Promise((resolve, reject) => {
     const partes = [];
-    req.on('data', (c) => partes.push(c));
+    let total = 0;
+    req.on('data', (c) => {
+      total += c.length;
+      if (total > MAXIMO_CUERPO) {
+        req.destroy();
+        reject(new Error('cuerpo demasiado grande'));
+        return;
+      }
+      partes.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(partes).toString('utf8')));
     req.on('error', reject);
   });

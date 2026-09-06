@@ -14,5 +14,8 @@
     "test": "node --no-warnings --test test/*.test.js"
   },
   "license": "UNLICENSED",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0"
+  }
 }

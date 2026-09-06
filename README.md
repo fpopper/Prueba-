@@ -1,22 +1,28 @@
 # Relevamiento de visitas por WhatsApp — FACBSA
 
-Chat de WhatsApp para que la fuerza de ventas cargue el relevamiento de cada punto
-de venta desde el celular, sin planillas ni papel.
+Un agente conversacional de WhatsApp para que la fuerza de ventas cargue el
+relevamiento de cada punto de venta desde el celular, hablando normal.
 
-El vendedor **declara a qué cliente va antes de entrar**, el bot le devuelve la
-situación real de esa cuenta leída de la base, y le indica **qué tiene que
-averiguar adentro** según lo que muestran los números. Al salir escribe `FIN` y
-el bot le toma el relevamiento pregunta por pregunta.
+El vendedor le dice a quién va a visitar, el bot le devuelve la situación real de
+esa cuenta leída de la base y le indica qué averiguar adentro. Al salir, le manda
+**un audio contando cómo le fue**: el bot lo transcribe, registra lo que entendió
+y le repregunta sólo lo que falta.
+
+No hay comandos, ni menúes, ni formularios. La conversación es la interfaz.
 
 ---
 
 ## Cómo se ve una visita
 
-**1. Antes de entrar** — el vendedor escribe el nombre del cliente:
+**1. Antes de entrar** — el vendedor escribe o dice a quién va a ver:
 
 ```
->>> edesur
+>>> estoy yendo a lo de edesur
+```
 
+El bot lo busca en la base y le manda la ficha con los números exactos:
+
+```
 📋 EDESUR DISTRIBUCION ELECTRICA SA
 Cod. C-1001 · EMPRESA ENERGIA · Avellaneda, Buenos Aires
 
@@ -40,7 +46,7 @@ Atencion:
 🟢 Gap de tomacables estimado: 62 u. ≈ $707k.
 ```
 
-**2. Y lo que tiene que averiguar adentro**, generado a partir de esos números:
+Y lo que tiene que averiguar adentro, generado a partir de esos números:
 
 ```
 ❗ Averigua esto adentro (te lo vuelvo a preguntar al salir):
@@ -56,8 +62,29 @@ Atencion:
       Concentra el 29% de la facturacion de FACBSA.
 ```
 
-**3. Al salir** escribe `FIN` y contesta el cuestionario. Al final recibe un
-resumen de lo que cargó y la oficina lo ve en el panel o lo baja a Excel.
+**2. Al salir** — manda una nota de voz:
+
+> *"Salí de Edesur. Hablé con Marcelo Ruiz, jefe de compras. Bajaron las compras
+> porque entró Genrod con mejor precio en cable. Tienen poco stock nuestro.
+> Homologados estamos, la licitación abre en marzo. Lo del contrato marco lo
+> tienen que ver con dirección. Quedó que les mando cotización el lunes."*
+
+El bot la transcribe, registra todo lo que entendió y sólo pregunta lo que falta:
+
+```
+Anoté todo. Me quedan dos cosas:
+
+¿Cómo ven nuestro precio frente a la competencia?
+  [ Más barato ] [ Parecido ] [ Un poco más caro ] ...
+
+>>> (toca "Un poco más caro")
+
+¿Tenían cartelería nuestra a la vista?
+  [ Sí, bien exhibido ] [ Algo, pero poco ] [ Nada ]
+```
+
+Las opciones cerradas van como **botonera nativa de WhatsApp**: parado en la
+vereda de un cliente, tocar un botón es mucho más rápido que escribir.
 
 ---
 
@@ -87,29 +114,70 @@ de FACBSA, no de una lista fija:
 | Cuenta compartida entre dos agentes | Con quién de FACBSA trabajan realmente |
 | Prospecto sin historia | Qué compran hoy, a quién y qué volumen |
 
-Se le mandan como máximo **4 preguntas especiales** por visita, ordenadas por
+Se le piden como máximo **4 preguntas especiales** por visita, ordenadas por
 criticidad: más que eso y las contesta de compromiso.
+
+---
+
+## Los dos modos
+
+| | **Agente** (con `ANTHROPIC_API_KEY`) | **Guiado** (sin clave) |
+|---|---|---|
+| Entrada | Lenguaje natural, texto o audio | Texto, pregunta por pregunta |
+| Cómo declara el cliente | "estoy yendo a lo de edesur" | Escribe el nombre |
+| Cómo carga la visita | Un audio y el bot repregunta lo que falta | Contesta 13 preguntas seguidas |
+| Botonera de WhatsApp | Sí | Sí |
+| Costo por visita | Centavos de dólar | Cero |
+
+El modo guiado no es una maqueta: es el mismo relevamiento, con las mismas
+reglas y la misma base. Sirve como respaldo si se cae la API o si se quiere
+arrancar sin costo variable. El bot elige el modo solo, según si hay clave.
 
 ---
 
 ## Instalación
 
-Requisito único: **Node.js 22.5 o superior**. No hay dependencias que instalar
-(usa la base SQLite que trae Node), así que funciona en una máquina de la oficina
-sin internet una vez copiada la carpeta.
+Requiere **Node.js 22.5 o superior**.
 
 ```bash
-node --version        # tiene que decir v22.5.0 o mayor
+npm install           # instala el SDK de Anthropic (única dependencia)
 npm run demo          # carga clientes y vendedores de prueba
 npm start             # levanta el servidor
 ```
 
 Después abrir **http://localhost:3000/simulador** y probar el chat completo en el
-navegador, sin necesidad todavía de una cuenta de WhatsApp.
+navegador, sin necesidad todavía de una cuenta de WhatsApp. El simulador muestra
+la botonera tal como se ve en WhatsApp y deja grabar audio con el micrófono.
 
-Clientes de prueba para escribirle al bot: `edesur`, `electro mayorista`,
-`pampa`, `junin`, `montajes del norte`, `ferreteria rosario`, o
-`NUEVO Ferretería La Esquina` para un prospecto.
+Clientes de prueba: `edesur`, `electro mayorista`, `pampa`, `junin`,
+`montajes del norte`, `ferretería rosario`.
+
+### Encender el modo agente
+
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-...
+TRANSCRIPCION_PROVEEDOR=openai
+TRANSCRIPCION_API_KEY=sk-...
+```
+
+Claude no procesa audio, así que la transcripción la hace un servicio de
+speech-to-text aparte. Están implementados dos, se elige con
+`TRANSCRIPCION_PROVEEDOR`:
+
+| Proveedor | Modelo por defecto | Costo aprox. | Nota |
+|---|---|---|---|
+| `openai` | `whisper-1` | ~USD 0,006 / minuto | El más probado en español rioplatense |
+| `deepgram` | `nova-3` | ~USD 0,004 / minuto | Más barato, algo más rápido |
+| `ninguno` | — | — | El bot avisa que no puede escuchar y pide texto |
+
+Al transcriptor se le pasa el vocabulario del rubro (jabalinas, tomacables,
+IRAM 2467, soldadura exotérmica). Sin eso, esas palabras salen mal escritas muy
+seguido y después no hay forma de buscarlas en los relevamientos.
+
+**Costo estimado**: con 10 vendedores × 8 visitas por día, entre transcripción y
+conversación son unos pocos dólares por día. El modelo (`claude-opus-5`) y el
+esfuerzo (`ANTHROPIC_EFFORT`, arranca en `low`) se cambian en el `.env`.
 
 ---
 
@@ -119,7 +187,7 @@ El bot lee la base desde el mismo Excel que ya se exporta del sistema de ventas.
 
 ```bash
 npm run importar -- ~/Descargas/ventas-2026.xlsx --reset
-npm run importar -- ventas.xlsx --hoja "Detalle"     # si los datos no están en la primera hoja
+npm run importar -- ventas.xlsx --hoja "Detalle"     # si no están en la primera hoja
 ```
 
 **Columnas que necesita** (las busca por nombre, no por posición, y acepta las
@@ -137,13 +205,13 @@ variantes habituales del sistema):
 | Cantidad | Cantidad, Cant., Unidades | no |
 | Localidad / Provincia | Localidad, Ciudad, Provincia | no |
 
-Si algún encabezado no se reconoce, el importador lo avisa y no importa nada
-mal mapeado. Se puede agregar el alias en `src/importador/normalizar.js`.
+Si algún encabezado no se reconoce, el importador lo avisa y no importa nada mal
+mapeado. Se puede agregar el alias en `src/importador/normalizar.js`.
 
 **El importe tiene que ser el precio neto con descuentos, no el de lista.**
 
-Al terminar, el importador informa qué detectó y valida el total contra el
-archivo (avisa si el desvío supera el 1%):
+Al terminar informa qué detectó y valida el total contra el archivo (avisa si el
+desvío supera el 1%):
 
 ```
 Filas importadas:      990
@@ -174,8 +242,8 @@ criterio, se toca ahí y todo el bot queda alineado.
 
 ## Dar de alta a los vendedores
 
-El teléfono es la credencial: si el número no está en la lista, el bot no
-acepta cargar visitas.
+El teléfono es la credencial: si el número no está en la lista, el bot no acepta
+cargar visitas.
 
 ```bash
 node scripts/vendedores.js listar
@@ -205,33 +273,36 @@ qué regla de negocio disparó cada pregunta especial. Con eso se puede medir, p
 ejemplo, cuántos clientes con gap de tomacables dijeron que le compran a la
 competencia y a qué precio.
 
+Las transcripciones de los audios quedan guardadas aparte, en la tabla
+`transcripciones`: sirven para auditar qué dijo el vendedor y qué entendió el
+agente.
+
 ---
 
 ## Conectar el WhatsApp real
 
 Ver **[docs/conectar-whatsapp.md](docs/conectar-whatsapp.md)** para el paso a
-paso con Meta (WhatsApp Cloud API). Resumen:
+paso con Meta. Resumen:
 
 1. Crear la app en developers.facebook.com y agregar el producto WhatsApp.
-2. Copiar `.env.example` a `.env` y completar `WHATSAPP_TOKEN`,
-   `WHATSAPP_PHONE_NUMBER_ID` y `WHATSAPP_APP_SECRET`.
-3. Publicar el servidor con HTTPS y registrar el webhook apuntando a
+2. Completar `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` y `WHATSAPP_APP_SECRET`
+   en el `.env`.
+3. Publicar el servidor con HTTPS y registrar el webhook en
    `https://TU-DOMINIO/webhook`.
-
-Mientras tanto el simulador permite validar todo el flujo y ajustar las
-preguntas con los vendedores.
 
 ---
 
-## Cambiar las preguntas
+## Cambiar el comportamiento
 
 | Qué querés cambiar | Archivo |
 |---|---|
-| Las preguntas de rutina del punto de venta | `src/chat/cuestionario.js` |
+| Cómo habla el agente, qué puede y qué no | `src/ia/agente.js` (las instrucciones) |
+| Qué puede hacer el agente contra la base | `src/ia/herramientas.js` |
+| Los puntos del relevamiento del punto de venta | `src/chat/cuestionario.js` |
 | Las preguntas especiales y cuándo se disparan | `src/negocio/preguntas-especiales.js` |
 | Umbrales de segmento, ratio de tomacables, días de inactividad | `src/negocio/reglas.js` |
-| Los textos y el tono del bot | `src/chat/textos.js` |
 | Qué muestra la ficha del cliente | `src/negocio/ficha-cliente.js` |
+| Los textos del modo guiado | `src/chat/textos.js` |
 
 Después de cualquier cambio:
 
@@ -251,42 +322,66 @@ src/
     schema.sql                  esquema de la base
     db.js                       apertura de SQLite
     queries.js                  consultas de negocio
+  ia/
+    agente.js                   el agente conversacional y su bucle
+    herramientas.js             lo que el agente puede hacer contra la base
+    transcribir.js              notas de voz → texto
   negocio/
     reglas.js                   umbrales y reglas de FACBSA (fuente única)
     ficha-cliente.js            arma la situación del cliente
     preguntas-especiales.js     motor de reglas → preguntas dinámicas
   chat/
-    maquina-estados.js          flujo de la conversación
-    cuestionario.js             relevamiento del punto de venta
-    gestor.js                   log de mensajes e idempotencia
-    textos.js                   textos que ve el vendedor
+    gestor.js                   elige el modo, transcribe, log e idempotencia
+    cuestionario.js             puntos del relevamiento y botonera
+    maquina-estados.js          flujo determinista del modo guiado
+    textos.js                   textos del modo guiado
   whatsapp/
-    meta.js                     WhatsApp Cloud API (firma y envío)
+    meta.js                     Cloud API: firma, botonera, audio
   importador/
     importar.js                 Excel/CSV → base + cálculo de métricas
-    normalizar.js               detección de columnas y reglas de normalización
+    normalizar.js               detección de columnas y normalización
     xlsx.js                     lector de .xlsx sin dependencias
-public/simulador.html           simulador de WhatsApp para probar sin Meta
+public/simulador.html           simulador de WhatsApp, con micrófono
 scripts/                        demo, vendedores, exportación
-test/                           pruebas de reglas de negocio y del flujo
+test/                           reglas de negocio, flujo guiado y agente
 ```
+
+---
+
+## Cómo se evita que el agente invente
+
+Es la preocupación razonable de poner un modelo de lenguaje a hablar de números
+de facturación. Tres barreras:
+
+1. **La ficha no la escribe el modelo.** La arma el código desde la base y se le
+   manda al vendedor tal cual. El agente recibe el aviso de que ya se envió y la
+   instrucción de no repetir los números.
+2. **Todo lo que se guarda pasa por una herramienta con esquema estricto.** Una
+   respuesta de opción cerrada que no coincida exactamente con una de las
+   opciones válidas se rechaza y se le devuelve el error al modelo.
+3. **El cierre lo controla el código, no el modelo.** `cerrar_visita` falla
+   mientras queden puntos obligatorios sin responder, así que el agente no puede
+   dar por terminada una visita a medias.
 
 ---
 
 ## Límites conocidos
 
-- **Ventana de 24 horas de WhatsApp.** Meta solo deja responder libremente
+- **El modo agente no está probado contra la API real todavía.** El bucle, el
+  despacho de herramientas y la botonera están cubiertos por pruebas con un
+  cliente simulado, pero hace falta una `ANTHROPIC_API_KEY` para verificar la
+  conversación de punta a punta. El modo guiado sí está probado completo.
+- **Ventana de 24 horas de WhatsApp.** Meta sólo deja responder libremente
   dentro de las 24 horas del último mensaje del usuario. Como acá siempre
   escribe primero el vendedor, no afecta el flujo normal; sí haría falta una
-  plantilla aprobada si en el futuro se quiere que el bot inicie la conversación
-  (por ejemplo, recordarle una visita pendiente).
+  plantilla aprobada para que el bot inicie la conversación.
 - **Las fotos se guardan por referencia** (el `media_id` de WhatsApp), no se
   descargan. Meta las conserva unos días; si se quieren archivar hay que bajarlas.
 - **La base se actualiza por import**, no en vivo contra el sistema de gestión.
   Conviene correr el import con la frecuencia con que se exporta el reporte de
-  ventas (semanal o mensual).
+  ventas.
 - **El gap de tomacables es una estimación** basada en un ratio comercial de
-  referencia (1 cada 2 jabalinas), no una demanda insatisfecha comprobada. El bot
-  se lo aclara al vendedor en el mismo mensaje.
-- **No hay geolocalización obligatoria.** El esquema tiene los campos de latitud
-  y longitud previstos, pero el flujo actual no le pide la ubicación al vendedor.
+  referencia (1 cada 2 jabalinas), no una demanda insatisfecha comprobada. Tanto
+  la ficha como el agente se lo aclaran al vendedor.
+- **No hay geolocalización obligatoria.** El esquema tiene los campos previstos,
+  pero el flujo actual no le pide la ubicación al vendedor.

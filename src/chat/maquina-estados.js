@@ -24,6 +24,7 @@ import { buscarClientes, buscarVendedorPorTelefono, normalizarTelefono } from '.
 import { armarFicha, formatearFicha } from '../negocio/ficha-cliente.js';
 import { formatearAvisoPreguntas, preguntasEspeciales } from '../negocio/preguntas-especiales.js';
 import { armarCuestionario, formatearPregunta, validarRespuesta } from './cuestionario.js';
+import { resumenVisita } from '../ia/herramientas.js';
 import { TEXTOS } from './textos.js';
 
 export const ESTADOS = {
@@ -288,7 +289,7 @@ function arrancarRelevamiento(db, telefono, sesion) {
 
   return [
     { texto: TEXTOS.arrancaRelevamiento(preguntas.length) },
-    { texto: formatearPregunta(preguntas[0], 1, preguntas.length) },
+    formatearPregunta(preguntas[0], 1, preguntas.length),
   ];
 }
 
@@ -305,7 +306,7 @@ function responderPregunta(db, telefono, sesion, vendedor, entrada) {
   if (!validacion.ok) {
     return [
       { texto: `⚠️ ${validacion.error}` },
-      { texto: formatearPregunta(pregunta, indice + 1, preguntas.length) },
+      formatearPregunta(pregunta, indice + 1, preguntas.length),
     ];
   }
 
@@ -338,7 +339,7 @@ function responderPregunta(db, telefono, sesion, vendedor, entrada) {
     contexto: { preguntas, indice: siguiente },
   });
 
-  return [{ texto: formatearPregunta(preguntas[siguiente], siguiente + 1, preguntas.length) }];
+  return [formatearPregunta(preguntas[siguiente], siguiente + 1, preguntas.length)];
 }
 
 function cerrarVisita(db, telefono, sesion) {
@@ -356,29 +357,6 @@ function cerrarVisita(db, telefono, sesion) {
     { texto: resumenVisita(db, sesion.visita_id) },
     { texto: TEXTOS.cierre(visita?.cliente_texto || 'el cliente') },
   ];
-}
-
-// Resumen que se le devuelve al vendedor: sirve de comprobante y de control.
-function resumenVisita(db, visitaId) {
-  const filas = db
-    .prepare(
-      `SELECT pregunta_id, pregunta_texto, respuesta, origen FROM respuestas
-       WHERE visita_id = ? ORDER BY id`
-    )
-    .all(visitaId);
-
-  const L = ['📝 *Resumen de lo que cargaste*', ''];
-  for (const f of filas) {
-    const marca = f.origen === 'especial' ? '❗' : '•';
-    L.push(`${marca} ${acortar(f.pregunta_texto, 60)}`);
-    L.push(`   → ${f.respuesta || '(sin respuesta)'}`);
-  }
-  return L.join('\n');
-}
-
-function acortar(texto, largo) {
-  const t = String(texto || '');
-  return t.length <= largo ? t : `${t.slice(0, largo - 1)}…`;
 }
 
 // --- Comandos globales -------------------------------------------------------
@@ -418,7 +396,7 @@ function estadoActual(db, sesion, vendedor) {
           `Vas por la pregunta ${indice + 1} de ${preguntas.length}.`,
       },
       preguntas[indice]
-        ? { texto: formatearPregunta(preguntas[indice], indice + 1, preguntas.length) }
+        ? formatearPregunta(preguntas[indice], indice + 1, preguntas.length)
         : { texto: TEXTOS.ayuda },
     ];
   }

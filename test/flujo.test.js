@@ -39,20 +39,23 @@ function decir(texto, extra = {}) {
   return atenderMensaje(db, { telefono: TEL, texto, waMessageId: `t${contador++}`, ...extra });
 }
 
+// Todas las pruebas corren en modo guiado (sin ANTHROPIC_API_KEY): es el flujo
+// determinista, el unico que se puede probar sin llamar a la API.
+
 describe('flujo completo de una visita', () => {
-  test('un numero no registrado no puede cargar visitas', () => {
-    const r = atenderMensaje(db, { telefono: '5491100000000', texto: 'hola', waMessageId: 'x1' });
+  test('un numero no registrado no puede cargar visitas', async () => {
+    const r = await atenderMensaje(db, { telefono: '5491100000000', texto: 'hola', waMessageId: 'x1' });
     assert.match(r[0].texto, /no esta habilitado/i);
   });
 
-  test('el bot saluda por el nombre del vendedor y pide el cliente', () => {
-    const r = decir('hola');
+  test('el bot saluda por el nombre del vendedor y pide el cliente', async () => {
+    const r = await decir('hola');
     assert.match(r[0].texto, /Vendedor/);
     assert.match(r[0].texto, /vas a visitar/i);
   });
 
-  test('declarar el cliente devuelve la ficha y las preguntas especiales', () => {
-    const r = decir('metalurgica del oeste');
+  test('declarar el cliente devuelve la ficha y las preguntas especiales', async () => {
+    const r = await decir('metalurgica del oeste');
     assert.equal(r.length, 3);
     assert.match(r[0].texto, /METALURGICA DEL OESTE/);
     assert.match(r[0].texto, /Facturacion 12m/);
@@ -62,39 +65,42 @@ describe('flujo completo de una visita', () => {
     assert.match(r[2].texto, /FIN/);
   });
 
-  test('mientras esta adentro, el bot le recuerda que escriba FIN', () => {
-    const r = decir('estoy entrando');
+  test('mientras esta adentro, el bot le recuerda que escriba FIN', async () => {
+    const r = await decir('estoy entrando');
     assert.match(r[0].texto, /visita abierta/i);
   });
 
-  test('FICHA vuelve a mostrar la situacion del cliente', () => {
-    const r = decir('FICHA');
+  test('FICHA vuelve a mostrar la situacion del cliente', async () => {
+    const r = await decir('FICHA');
     assert.match(r[0].texto, /METALURGICA DEL OESTE/);
   });
 
-  test('FIN arranca el cuestionario', () => {
-    const r = decir('FIN');
+  test('FIN arranca el cuestionario', async () => {
+    const r = await decir('FIN');
     assert.match(r[0].texto, /relevamiento/i);
     assert.match(r[1].texto, /^\*1\//);
   });
 
-  test('una opcion invalida se rechaza y se repite la pregunta', () => {
-    decir('Juan Gomez, comprador'); // 1: contacto
-    const r = decir('99'); // 2: opciones
+  test('una opcion invalida se rechaza y se repite la pregunta', async () => {
+    await decir('Juan Gomez, comprador'); // 1: contacto
+    const r = await decir('99'); // 2: opciones
     assert.match(r[0].texto, /⚠️/);
     assert.match(r[1].texto, /^\*2\//);
   });
 
-  test('el cuestionario se completa y la visita queda guardada', () => {
-    let respuestas = decir('1'); // resultado
+  test('el cuestionario se completa y la visita queda guardada', async () => {
+    let respuestas = await decir('1'); // resultado
     let vueltas = 0;
 
     // Contestamos hasta que el bot devuelva el resumen final.
-    while (!respuestas.some((m) => /Resumen de lo que cargaste/.test(m.texto))) {
+    while (!respuestas.some((m) => /qued[oó] cargado/i.test(m.texto))) {
       if (++vueltas > 30) throw new Error('el cuestionario no termina nunca');
-      const ultima = respuestas[respuestas.length - 1].texto;
-      // Si ofrece opciones numeradas contestamos "1", si no, texto libre.
-      respuestas = decir(/\*1\.\* /.test(ultima) ? '1' : 'Respuesta de prueba del vendedor');
+      // Si la pregunta trae botonera, contestamos como si tocara el primer boton.
+      const conBotones = respuestas[respuestas.length - 1].botones ||
+        respuestas[respuestas.length - 1].lista?.filas;
+      respuestas = conBotones
+        ? await decir(conBotones[0].titulo, { opcionId: conBotones[0].id })
+        : await decir('Respuesta de prueba del vendedor');
     }
 
     const visita = consultarUna(db, "SELECT * FROM visitas WHERE estado = 'COMPLETA' ORDER BY id DESC LIMIT 1");
@@ -109,29 +115,29 @@ describe('flujo completo de una visita', () => {
     assert.ok(especiales.n > 0, 'tienen que quedar registradas las respuestas especiales');
   });
 
-  test('un prospecto que no esta en el sistema se puede cargar igual', () => {
-    const r = decir('NUEVO Ferreteria La Esquina');
+  test('un prospecto que no esta en el sistema se puede cargar igual', async () => {
+    const r = await decir('NUEVO Ferreteria La Esquina');
     assert.match(r[0].texto, /cliente nuevo/i);
-    decir('CANCELAR');
+    await decir('CANCELAR');
   });
 
-  test('CANCELAR deja la visita anulada y libera al vendedor', () => {
-    decir('metalurgica');
-    const r = decir('CANCELAR');
+  test('CANCELAR deja la visita anulada y libera al vendedor', async () => {
+    await decir('metalurgica');
+    const r = await decir('CANCELAR');
     assert.match(r[0].texto, /cancel/i);
     const sesion = consultarUna(db, 'SELECT estado FROM sesiones WHERE telefono = ?', [TEL]);
     assert.equal(sesion.estado, 'INICIO');
   });
 
-  test('el mismo mensaje de WhatsApp no se procesa dos veces', () => {
-    const primera = atenderMensaje(db, { telefono: TEL, texto: 'hola', waMessageId: 'repetido' });
-    const segunda = atenderMensaje(db, { telefono: TEL, texto: 'hola', waMessageId: 'repetido' });
+  test('el mismo mensaje de WhatsApp no se procesa dos veces', async () => {
+    const primera = await atenderMensaje(db, { telefono: TEL, texto: 'hola', waMessageId: 'repetido' });
+    const segunda = await atenderMensaje(db, { telefono: TEL, texto: 'hola', waMessageId: 'repetido' });
     assert.ok(primera.length > 0);
     assert.equal(segunda.length, 0);
   });
 
-  test('si hay varios clientes parecidos, ofrece elegir', () => {
-    const r = decir('srl');
+  test('si hay varios clientes parecidos, ofrece elegir', async () => {
+    const r = await decir('srl');
     assert.ok(/Encontré varios|cliente nuevo|📋/.test(r[0].texto));
   });
 });
