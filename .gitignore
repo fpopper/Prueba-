@@ -1,0 +1,9 @@
+node_modules/
+.env
+datos/*.db
+datos/*.db-wal
+datos/*.db-shm
+salidas/
+*.log
+.DS_Store
+datos/ejemplo-ventas.csv

@@ -1,0 +1,18 @@
+{
+  "name": "facbsa-relevamiento-whatsapp",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp para el relevamiento de visitas de la fuerza de ventas de FACBSA, conectado a la base de clientes.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings src/server.js",
+    "importar": "node --no-warnings src/importador/importar.js",
+    "demo": "node --no-warnings scripts/cargar-demo.js",
+    "exportar": "node --no-warnings scripts/exportar-relevamientos.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
