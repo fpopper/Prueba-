@@ -13,6 +13,7 @@
 //   motivo    por que se la estamos pidiendo (se le muestra, para que entienda
 //             el pedido y no lo conteste de compromiso)
 //   tipo      texto | opciones | numero
+import { competidorEsperado } from './competencia.js';
 import {
   CAIDA_CHURN,
   CONCENTRACION_ALERTA,
@@ -72,7 +73,8 @@ export const REGLAS = [
       `Gap estimado ${unidades(f.metricas.gapTomacablesU)} u. ≈ ${pesos(f.metricas.gapTomacablesPesos)}. ` +
       'Es una estimacion, no una demanda comprobada: confirmala en el cliente.',
     pregunta:
-      '¿A quien le compran los tomacables y a que precio? ¿O el tipo de instalacion que hacen no los lleva?',
+      '¿A quién le compran los tomacables, qué parte del consumo se lleva y a qué precio? ' +
+      `Si no sabés el nombre, tanteá: en esta familia suele aparecer ${competidorEsperado('TOMACABLES').join(' o ')}.`,
     tipo: 'texto',
   },
   {
@@ -85,7 +87,8 @@ export const REGLAS = [
     motivo: (f) =>
       `Compra mas tomacables que los que corresponderian a sus jabalinas (ratio ${porcentaje(f.metricas.ratioTomacables)}). ` +
       'Probablemente las jabalinas las compra en otro lado.',
-    pregunta: '¿Donde compran las jabalinas? ¿Que marca y a que precio?',
+    pregunta:
+      '¿Dónde compran las jabalinas, qué marca, qué parte del consumo y a qué precio contra el nuestro?',
     tipo: 'texto',
   },
 
@@ -185,6 +188,23 @@ export const REGLAS = [
       '¿Tiene potencial real de crecer o conviene pasarlo a pedido minimo / mayorista? Justificalo en una linea.',
     tipo: 'opciones',
     opciones: ['Tiene potencial, desarrollarlo', 'Pasar a pedido minimo', 'Migrar a mayorista', 'Dar de baja'],
+  },
+
+  // --- Competencia ya conocida en la cuenta ----------------------------------
+  {
+    id: 'COMPETENCIA_CONOCIDA',
+    nivel: 'ALERTA',
+    aplica: (f) => (f.competencia || []).some((c) =>
+      c.participacion === 'Todo se lo compran' || c.participacion === 'La mayor parte'),
+    motivo: (f) => {
+      const fuerte = (f.competencia || []).find((c) =>
+        c.participacion === 'Todo se lo compran' || c.participacion === 'La mayor parte');
+      return `En la visita anterior quedó que ${fuerte.competidor} se lleva ${String(fuerte.participacion).toLowerCase()} de ${fuerte.familia}` +
+        `${fuerte.motivo ? `, por ${String(fuerte.motivo).toLowerCase()}` : ''}.`;
+    },
+    pregunta:
+      '¿Sigue igual con ese proveedor o algo cambió? Si cambió, ¿qué se movió: el precio, la entrega o la relación?',
+    tipo: 'texto',
   },
 
   // --- Cuentas compartidas y prospectos --------------------------------------

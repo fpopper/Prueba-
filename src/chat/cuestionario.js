@@ -16,6 +16,8 @@
 
 export const LARGO_MAXIMO_OPCION = 20;
 
+import { OPCIONES_MOTIVO, OPCIONES_PARTICIPACION, OPCIONES_PRECIO } from '../negocio/competencia.js';
+
 export const CUESTIONARIO_BASE = [
   {
     id: 'contacto',
@@ -47,20 +49,65 @@ export const CUESTIONARIO_BASE = [
     obligatoria: true,
     busca: 'cuanto stock de FACBSA hay en el cliente',
   },
+  // --- Competencia ---------------------------------------------------------
+  // No alcanza con "vi tal marca". Lo que hace falta para poder actuar es
+  // quién, en qué producto, cuánto se lleva y por qué. Los cuatro puntos van
+  // juntos y en ese orden.
   {
-    id: 'competencia',
-    texto: '¿Qué marcas de la competencia viste en el mostrador o depósito? Si no viste ninguna, escribí NINGUNA.',
+    id: 'competencia_quien',
+    texto: '¿A quién más le compran? Nombrá el proveedor. Si nos compran todo a nosotros, escribí NINGUNO.',
     tipo: 'texto',
     obligatoria: true,
-    busca: 'marcas de la competencia presentes en el cliente',
+    busca: 'qué otros proveedores le venden a este cliente',
   },
   {
-    id: 'precio_percibido',
-    texto: '¿Cómo ven nuestro precio frente a la competencia?',
+    id: 'competencia_familia',
+    // Sin competencia declarada, estos cuatro puntos no van.
+    omitirSi: { pregunta: 'competencia_quien', valorCoincide: '^(ninguno|ninguna|no|nadie|nada)\\b' },
+    texto: '¿En qué producto nos compite?',
     tipo: 'opciones',
-    opciones: ['Más barato', 'Parecido', 'Un poco más caro', 'Mucho más caro', 'No se habló'],
+    opciones: [
+      'Jabalinas',
+      'Tomacables',
+      'Cable IRAM 2467',
+      'Pararrayos',
+      'Soldadura exotérm.',
+      'Conectores',
+      'Conjuntos',
+      'En ninguno',
+    ],
     obligatoria: true,
-    busca: 'como percibe el cliente el precio de FACBSA contra la competencia',
+    busca: 'en qué familia de producto nos compite ese proveedor',
+  },
+  {
+    id: 'competencia_participacion',
+    // Sin competencia declarada, estos cuatro puntos no van.
+    omitirSi: { pregunta: 'competencia_quien', valorCoincide: '^(ninguno|ninguna|no|nadie|nada)\\b' },
+    texto: '¿Qué parte de ese producto le compran a él?',
+    tipo: 'opciones',
+    opciones: [...OPCIONES_PARTICIPACION, 'No aplica'],
+    obligatoria: true,
+    busca: 'qué porción del consumo se lleva la competencia',
+  },
+  {
+    id: 'competencia_precio',
+    // Sin competencia declarada, estos cuatro puntos no van.
+    omitirSi: { pregunta: 'competencia_quien', valorCoincide: '^(ninguno|ninguna|no|nadie|nada)\\b' },
+    texto: '¿Cómo está el precio de él contra el nuestro?',
+    tipo: 'opciones',
+    opciones: [...OPCIONES_PRECIO, 'No aplica'],
+    obligatoria: true,
+    busca: 'brecha de precio contra la competencia',
+  },
+  {
+    id: 'competencia_motivo',
+    // Sin competencia declarada, estos cuatro puntos no van.
+    omitirSi: { pregunta: 'competencia_quien', valorCoincide: '^(ninguno|ninguna|no|nadie|nada)\\b' },
+    texto: '¿Por qué le compran a él y no a nosotros?',
+    tipo: 'opciones',
+    opciones: [...OPCIONES_MOTIVO, 'No aplica'],
+    obligatoria: true,
+    busca: 'motivo por el que el cliente le compra a la competencia',
   },
   {
     id: 'exhibicion',
@@ -117,6 +164,20 @@ export function armarCuestionario(preguntasEspeciales = []) {
   );
 
   return [...base, ...especiales, ...cierre];
+}
+
+/**
+ * Un punto puede depender de otro: si el vendedor dijo que no le compran a
+ * nadie más, las preguntas de competencia no aplican. Lo usan tanto el flujo
+ * guiado como el cálculo de pendientes del agente, para que los dos coincidan
+ * en qué falta.
+ */
+export function puntoAplica(punto, respuestas = {}) {
+  const cond = punto.omitirSi;
+  if (!cond) return true;
+  const dada = respuestas[cond.pregunta];
+  if (dada === undefined || dada === null) return true; // todavía no se sabe
+  return !new RegExp(cond.valorCoincide, 'i').test(String(dada).trim());
 }
 
 // --- Presentacion ------------------------------------------------------------

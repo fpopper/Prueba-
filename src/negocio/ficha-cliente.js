@@ -2,12 +2,14 @@
 // entrar. Devuelve un objeto con los datos crudos (que se guarda como snapshot
 // en la visita) y el texto formateado para WhatsApp.
 import {
+  competenciaDelCliente,
   familiasDelCliente,
   obtenerCliente,
   obtenerMetricas,
   contextoEmpresa,
   ultimasVisitas,
 } from '../db/queries.js';
+import { resumirPorCliente } from './competencia.js';
 import {
   CAIDA_CHURN,
   CONCENTRACION_ALERTA,
@@ -28,6 +30,7 @@ export function armarFicha(db, clienteId) {
   const familias = familiasDelCliente(db, clienteId);
   const empresa = contextoEmpresa(db);
   const visitas = ultimasVisitas(db, clienteId);
+  const competencia = competenciaDelCliente(db, clienteId);
 
   const variacionAnual = variacion(m.facturacion_12m, m.facturacion_12m_prev);
   const variacionTrim = variacion(m.facturacion_trim, m.facturacion_trim_prev);
@@ -72,6 +75,7 @@ export function armarFicha(db, clienteId) {
       importe: Number(f.importe_12m || 0),
     })),
     empresa,
+    competencia,
     ultimasVisitas: visitas,
     esProspecto: !m.cliente_id,
   };
@@ -129,6 +133,15 @@ function detectarAlertas(ficha) {
       nivel: 'OPORTUNIDAD',
       texto: `Gap de tomacables estimado: ${unidades(m.gapTomacablesU)} u. ≈ ${pesos(m.gapTomacablesPesos)}.`,
     });
+  }
+
+  for (const c of ficha.competencia || []) {
+    if (c.participacion === 'Todo se lo compran' || c.participacion === 'La mayor parte') {
+      alertas.push({
+        nivel: 'ALERTA',
+        texto: `${c.competidor} se lleva ${c.participacion.toLowerCase()} de ${c.familia}${c.motivo ? ` (por ${c.motivo.toLowerCase()})` : ''}.`,
+      });
+    }
   }
 
   if (m.cuentaCompartida && m.agenteSecundario) {
@@ -215,6 +228,12 @@ export function formatearFicha(ficha) {
       `🔩 Jabalinas ${unidades(m.jabalinas)} u. · Tomacables ${unidades(m.tomacables)} u. ` +
         `(ratio ${ratioTxt}, objetivo ${porcentaje(RATIO_TOMACABLES_OBJETIVO)})`
     );
+  }
+
+  if (ficha.competencia?.length) {
+    L.push('');
+    L.push('*Competencia relevada:*');
+    for (const linea of resumirPorCliente(ficha.competencia)) L.push(`• ${linea}`);
   }
 
   if (ficha.alertas.length) {

@@ -119,6 +119,77 @@ criticidad: más que eso y las contesta de compromiso.
 
 ---
 
+## La competencia en el punto de venta
+
+Saber "vi Genrod en el mostrador" sirve para leer una visita suelta, pero no se
+puede sumar entre cuentas. Por eso la competencia no se releva como texto libre:
+se releva **por competidor y por familia de producto**, con escalas cerradas.
+
+De cada proveedor que aparece se capturan cuatro cosas:
+
+| Qué | Cómo se releva | Para qué sirve |
+|---|---|---|
+| **En qué nos compite** | Familia de producto de FACBSA | Abrir el mapa por producto, no por cuenta |
+| **Cuánto se lleva** | Todo / La mayor parte / Mitad y mitad / Una parte chica / Casi nada | Dimensionar el volumen en juego |
+| **A qué precio** | Mucho más barato → Algo más caro, con un valor numérico detrás | Saber si es una guerra de precio o de otra cosa |
+| **Por qué le compran a él** | Precio · Entrega o stock · Plazo de pago · Costumbre o relación · Lo pide el pliego · No nos conocían | Es la palanca: cada motivo se corrige en un área distinta |
+
+El motivo es la parte que más rinde. Una cuenta perdida por **entrega** es un
+problema de Producción, no de Comercial; una perdida por **costumbre** es la más
+recuperable y depende de la frecuencia de visita; una perdida porque **lo pide el
+pliego** no es una pérdida comercial sino una homologación pendiente.
+
+### El mapa de competencia
+
+```bash
+npm run competencia                        # resumen en pantalla
+npm run competencia -- --familia TOMACABLES
+npm run competencia -- --csv               # detalle a Excel
+```
+
+```
+  MAPA DE COMPETENCIA — 6 registros de 3 cuentas
+
+  Competidor               Ctas   Se lleva    Precio  Motivo principal
+  GENROD                      2        58%       -9%  Entrega o stock
+                                 compite en: JABALINAS LISAS, CABLE IRAM 2467
+  SICAME                      1       100%       -8%  Precio
+                                 compite en: TOMACABLES
+
+  Dónde nos están ganando (ordenado por tamaño de cuenta)
+  ELECTRO MAYORISTA DEL PLATA SRL  B   SICAME   TOMACABLES   Precio
+```
+
+### Se realimenta solo
+
+Lo relevado en una visita vuelve en la ficha de la siguiente, y cambia la
+pregunta. En vez de volver a preguntar de cero:
+
+```
+*Competencia relevada:*
+• GENROD en CABLE IRAM 2467 · la mayor parte · mucho más barato · por precio
+
+🟠 GENROD se lleva la mayor parte de CABLE IRAM 2467 (por precio).
+```
+
+```
+🟠 ¿Sigue igual con ese proveedor o algo cambió? Si cambió, ¿qué se movió:
+   el precio, la entrega o la relación?
+   En la visita anterior quedó que GENROD se lleva la mayor parte de
+   CABLE IRAM 2467, por precio.
+```
+
+### El catálogo de competidores
+
+Está en `src/negocio/competencia.js`, con los alias con que los nombran los
+vendedores. **La lista inicial está pendiente de validar con Comercial**: hay que
+reemplazarla por los que realmente aparecen en la calle. Un competidor que no
+está en el catálogo no se fuerza dentro de otro — se guarda con el nombre que
+dijo el vendedor y el reporte lo lista aparte, igual que se hace con las familias
+de producto desconocidas.
+
+---
+
 ## Los dos modos
 
 | | **Agente** (con `ANTHROPIC_API_KEY`) | **Guiado** (sin clave) |
@@ -273,6 +344,9 @@ qué regla de negocio disparó cada pregunta especial. Con eso se puede medir, p
 ejemplo, cuántos clientes con gap de tomacables dijeron que le compran a la
 competencia y a qué precio.
 
+La competencia sale por separado con `npm run competencia`, porque la pregunta
+que responde no es "cómo fue esta visita" sino "quién nos compite y dónde".
+
 Las transcripciones de los audios quedan guardadas aparte, en la tabla
 `transcripciones`: sirven para auditar qué dijo el vendedor y qué entendió el
 agente.
@@ -299,6 +373,7 @@ paso con Meta. Resumen:
 | Cómo habla el agente, qué puede y qué no | `src/ia/agente.js` (las instrucciones) |
 | Qué puede hacer el agente contra la base | `src/ia/herramientas.js` |
 | Los puntos del relevamiento del punto de venta | `src/chat/cuestionario.js` |
+| El catálogo de competidores y las escalas de competencia | `src/negocio/competencia.js` |
 | Las preguntas especiales y cuándo se disparan | `src/negocio/preguntas-especiales.js` |
 | Umbrales de segmento, ratio de tomacables, días de inactividad | `src/negocio/reglas.js` |
 | Qué muestra la ficha del cliente | `src/negocio/ficha-cliente.js` |
@@ -328,6 +403,7 @@ src/
     transcribir.js              notas de voz → texto
   negocio/
     reglas.js                   umbrales y reglas de FACBSA (fuente única)
+    competencia.js              catálogo de competidores, escalas y agregación
     ficha-cliente.js            arma la situación del cliente
     preguntas-especiales.js     motor de reglas → preguntas dinámicas
   chat/
@@ -342,7 +418,7 @@ src/
     normalizar.js               detección de columnas y normalización
     xlsx.js                     lector de .xlsx sin dependencias
 public/simulador.html           simulador de WhatsApp, con micrófono
-scripts/                        demo, vendedores, exportación
+scripts/                        demo, vendedores, exportación, mapa de competencia
 test/                           reglas de negocio, flujo guiado y agente
 ```
 

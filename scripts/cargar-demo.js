@@ -10,8 +10,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { RAIZ } from '../src/config.js';
-import { abrirDb } from '../src/db/db.js';
+import { abrirDb, consultarUna, ejecutar } from '../src/db/db.js';
 import { altaVendedor } from '../src/db/queries.js';
+import { validarRegistro } from '../src/negocio/competencia.js';
 import { importar } from '../src/importador/importar.js';
 
 const HOY = new Date();
@@ -230,6 +231,75 @@ function generarLineas() {
   return lineas;
 }
 
+// Unas visitas ya relevadas, para que el mapa de competencia tenga algo que
+// mostrar apenas se carga la demostracion.
+const VISITAS_PREVIAS = [
+  {
+    cliente: 'C-1042',
+    vendedor: '5491100000002',
+    competencia: [
+      { competidor: 'Sicame', familia: 'TOMACABLES', participacion: 'Todo se lo compran',
+        precio_relativo: 'Algo más barato', motivo: 'Precio', volumen: 'unos 40 por mes' },
+      { competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'Una parte chica',
+        precio_relativo: 'Parecido al nuestro', motivo: 'Entrega o stock' },
+    ],
+  },
+  {
+    cliente: 'C-1120',
+    vendedor: '5491100000001',
+    competencia: [
+      { competidor: 'Genrod', familia: 'CABLE IRAM 2467', participacion: 'La mayor parte',
+        precio_relativo: 'Mucho más barato', motivo: 'Precio', volumen: 'lo que antes nos compraban a nosotros' },
+      { competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'La mayor parte',
+        precio_relativo: 'Algo más barato', motivo: 'Costumbre o relación' },
+    ],
+  },
+  {
+    cliente: 'C-1301',
+    vendedor: '5491100000003',
+    competencia: [
+      { competidor: 'Erico', familia: 'SOLDADURA EXOTERMICA', participacion: 'Todo se lo compran',
+        precio_relativo: 'Algo más caro', motivo: 'Lo pide el pliego' },
+      { competidor: 'Conductores del Litoral', familia: 'JABALINAS LISAS', participacion: 'Mitad y mitad',
+        precio_relativo: 'Algo más barato', motivo: 'Plazo de pago' },
+    ],
+  },
+];
+
+function cargarVisitasPrevias(db) {
+  let cargadas = 0;
+  for (const v of VISITAS_PREVIAS) {
+    const cliente = consultarUna(db, 'SELECT id, nombre FROM clientes WHERE codigo = ?', [v.cliente]);
+    const vendedor = consultarUna(db, 'SELECT id FROM vendedores WHERE telefono = ?', [v.vendedor]);
+    if (!cliente || !vendedor) continue;
+
+    const res = ejecutar(
+      db,
+      `INSERT INTO visitas (vendedor_id, cliente_id, cliente_texto, estado, iniciada_en, cerrada_en)
+       VALUES (?, ?, ?, 'COMPLETA', datetime('now','-21 days'), datetime('now','-21 days'))`,
+      [vendedor.id, cliente.id, cliente.nombre]
+    );
+    const visitaId = Number(res.lastInsertRowid);
+
+    for (const entrada of v.competencia) {
+      const { ok, fila } = validarRegistro(entrada);
+      if (!ok) continue;
+      ejecutar(
+        db,
+        `INSERT INTO competencia (visita_id, cliente_id, competidor, competidor_crudo,
+                                  competidor_conocido, familia, participacion, participacion_valor,
+                                  precio_relativo, precio_valor, motivo, volumen, relevado_en)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','-21 days'))`,
+        [visitaId, cliente.id, fila.competidor, fila.competidorCrudo, fila.competidorConocido,
+         fila.familia, fila.participacion, fila.participacionValor, fila.precioRelativo,
+         fila.precioValor, fila.motivo, fila.volumen]
+      );
+      cargadas++;
+    }
+  }
+  return cargadas;
+}
+
 function principal() {
   const encabezado = [
     'Codigo Cliente', 'Cliente', 'Canal', 'Localidad', 'Provincia',
@@ -250,6 +320,9 @@ function principal() {
 
   const db = abrirDb();
   for (const v of VENDEDORES) altaVendedor(db, { ...v, grupo: 'Venta Directa' });
+
+  const registros = cargarVisitasPrevias(db);
+  console.log(`  Visitas previas con competencia relevada: ${registros} registros`);
 
   console.log('  Vendedores de prueba dados de alta:');
   for (const v of VENDEDORES) console.log(`    ${v.telefono}  ${v.nombre}`);

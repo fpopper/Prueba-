@@ -198,3 +198,32 @@ CREATE TABLE IF NOT EXISTS transcripciones (
 );
 
 CREATE INDEX IF NOT EXISTS ix_transcripciones_visita ON transcripciones(visita_id);
+
+-- ---------------------------------------------------------------------------
+-- Posicionamiento de la competencia en el punto de venta
+-- ---------------------------------------------------------------------------
+
+-- Una fila por competidor y familia de producto relevados en una visita.
+-- La granularidad es a proposito: sin abrir por familia no se puede responder
+-- "quien nos compite en tomacables", que es la pregunta que importa.
+CREATE TABLE IF NOT EXISTS competencia (
+  id                    INTEGER PRIMARY KEY,
+  visita_id             INTEGER NOT NULL REFERENCES visitas(id) ON DELETE CASCADE,
+  cliente_id            INTEGER REFERENCES clientes(id) ON DELETE CASCADE,
+  competidor            TEXT NOT NULL,          -- nombre canonico
+  competidor_crudo      TEXT,                   -- como lo dijo el vendedor
+  competidor_conocido   INTEGER NOT NULL DEFAULT 0,
+  familia               TEXT NOT NULL,          -- familia de FACBSA en la que compite
+  participacion         TEXT,                   -- etiqueta de la escala
+  participacion_valor   REAL,                   -- 0 a 1, para poder promediar
+  precio_relativo       TEXT,
+  precio_valor          REAL,                   -- brecha estimada, negativo = mas barato que nosotros
+  motivo                TEXT,
+  volumen               TEXT,                   -- volumen estimado, en las palabras del vendedor
+  observacion           TEXT,
+  relevado_en           TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_competencia_cliente ON competencia(cliente_id);
+CREATE INDEX IF NOT EXISTS ix_competencia_familia ON competencia(familia);
+CREATE INDEX IF NOT EXISTS ix_competencia_visita  ON competencia(visita_id);

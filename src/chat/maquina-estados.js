@@ -23,7 +23,7 @@ import { consultarUna, ejecutar, enTransaccion } from '../db/db.js';
 import { buscarClientes, buscarVendedorPorTelefono, normalizarTelefono } from '../db/queries.js';
 import { armarFicha, formatearFicha } from '../negocio/ficha-cliente.js';
 import { formatearAvisoPreguntas, preguntasEspeciales } from '../negocio/preguntas-especiales.js';
-import { armarCuestionario, formatearPregunta, validarRespuesta } from './cuestionario.js';
+import { armarCuestionario, formatearPregunta, puntoAplica, validarRespuesta } from './cuestionario.js';
 import { resumenVisita } from '../ia/herramientas.js';
 import { TEXTOS } from './textos.js';
 
@@ -327,7 +327,12 @@ function responderPregunta(db, telefono, sesion, vendedor, entrada) {
     ]
   );
 
-  const siguiente = indice + 1;
+  // Avanzamos salteando los puntos que dejaron de aplicar con esta respuesta.
+  const dadas = respuestasDadas(db, sesion.visita_id);
+  let siguiente = indice + 1;
+  while (siguiente < preguntas.length && !puntoAplica(preguntas[siguiente], dadas)) {
+    siguiente++;
+  }
 
   if (siguiente >= preguntas.length) {
     return cerrarVisita(db, telefono, { ...sesion, contexto: { preguntas, indice: siguiente } });
@@ -340,6 +345,17 @@ function responderPregunta(db, telefono, sesion, vendedor, entrada) {
   });
 
   return [formatearPregunta(preguntas[siguiente], siguiente + 1, preguntas.length)];
+}
+
+// Lo respondido hasta ahora, para evaluar las condiciones entre preguntas.
+function respuestasDadas(db, visitaId) {
+  const dadas = {};
+  for (const r of db
+    .prepare('SELECT pregunta_id, respuesta FROM respuestas WHERE visita_id = ?')
+    .all(visitaId)) {
+    dadas[r.pregunta_id] = r.respuesta;
+  }
+  return dadas;
 }
 
 function cerrarVisita(db, telefono, sesion) {

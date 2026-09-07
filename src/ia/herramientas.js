@@ -6,12 +6,19 @@
 //     manda al vendedor tal cual sale de la base, sin que el modelo la reescriba
 //   - lo que se guarda queda validado contra el cuestionario, asi el relevamiento
 //     sigue siendo comparable entre visitas
-import { consultarUna, ejecutar, enTransaccion } from '../db/db.js';
+import { consultar, consultarUna, ejecutar, enTransaccion } from '../db/db.js';
 import { buscarClientes } from '../db/queries.js';
 import { armarFicha, formatearFicha } from '../negocio/ficha-cliente.js';
 import { formatearAvisoPreguntas, preguntasEspeciales } from '../negocio/preguntas-especiales.js';
-import { armarCuestionario } from '../chat/cuestionario.js';
+import { armarCuestionario, puntoAplica } from '../chat/cuestionario.js';
 import { pesos } from '../negocio/reglas.js';
+import {
+  OPCIONES_MOTIVO,
+  OPCIONES_PARTICIPACION,
+  OPCIONES_PRECIO,
+  competidorEsperado,
+  validarRegistro,
+} from '../negocio/competencia.js';
 
 // --- Definiciones que ve el modelo -------------------------------------------
 // strict: true garantiza que los argumentos validen contra el esquema.
@@ -91,6 +98,59 @@ export const DEFINICIONES = [
     },
   },
   {
+    name: 'registrar_competencia',
+    description:
+      'Guarda quién nos compite en este cliente, en qué familia de producto, qué parte del ' +
+      'consumo se lleva, a qué precio y por qué. Llamala apenas el vendedor menciona a otro ' +
+      'proveedor, aunque sea al pasar ("los tomacables se los compran a Sicame"). Una entrada ' +
+      'por competidor y familia. Es lo que después permite saber quién nos está sacando ' +
+      'volumen y dónde.',
+    strict: true,
+    input_schema: {
+      type: 'object',
+      properties: {
+        competidores: {
+          type: 'array',
+          description: 'Una entrada por cada combinación de competidor y familia.',
+          items: {
+            type: 'object',
+            properties: {
+              competidor: { type: 'string', description: 'Nombre del proveedor, como lo dijo el vendedor.' },
+              familia: {
+                type: 'string',
+                description:
+                  'Familia de FACBSA en la que compite: JABALINAS LISAS, TOMACABLES, ' +
+                  'CABLE IRAM 2467, PARARRAYOS, SOLDADURA EXOTERMICA, CONECTORES A COMPRESION ' +
+                  'o VARIOS (CONJUNTOS).',
+              },
+              participacion: {
+                type: ['string', 'null'],
+                description: `Qué parte del consumo de esa familia se lleva. Una de: ${OPCIONES_PARTICIPACION.join(' | ')}.`,
+              },
+              precio_relativo: {
+                type: ['string', 'null'],
+                description: `Cómo está su precio contra el nuestro. Una de: ${OPCIONES_PRECIO.join(' | ')}.`,
+              },
+              motivo: {
+                type: ['string', 'null'],
+                description: `Por qué le compran a él. Uno de: ${OPCIONES_MOTIVO.join(' | ')}.`,
+              },
+              volumen: {
+                type: ['string', 'null'],
+                description: 'Volumen estimado, en las palabras del vendedor. Sólo si lo dijo.',
+              },
+              observacion: { type: ['string', 'null'], description: 'Cualquier detalle que agregue contexto.' },
+            },
+            required: ['competidor', 'familia', 'participacion', 'precio_relativo', 'motivo', 'volumen', 'observacion'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['competidores'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'cerrar_visita',
     description:
       'Cierra el relevamiento. Sólo cuando están cubiertos todos los puntos obligatorios, ' +
@@ -121,6 +181,8 @@ export function ejecutarHerramienta(db, contexto, nombre, argumentos) {
       return herramientaAbrir(db, contexto, argumentos);
     case 'registrar_respuestas':
       return herramientaRegistrar(db, contexto, argumentos);
+    case 'registrar_competencia':
+      return herramientaCompetencia(db, contexto, argumentos);
     case 'cerrar_visita':
       return herramientaCerrar(db, contexto);
     case 'cancelar_visita':
@@ -328,13 +390,87 @@ function herramientaRegistrar(db, contexto, { respuestas }) {
 }
 
 function puntosPendientes(db, visitaId, preguntas) {
-  const respondidas = new Set(
-    db
-      .prepare('SELECT pregunta_id FROM respuestas WHERE visita_id = ?')
-      .all(visitaId)
-      .map((r) => r.pregunta_id)
+  const dadas = {};
+  for (const r of db
+    .prepare('SELECT pregunta_id, respuesta FROM respuestas WHERE visita_id = ?')
+    .all(visitaId)) {
+    dadas[r.pregunta_id] = r.respuesta;
+  }
+  // Un punto que no aplica (competencia, cuando no hay competencia) no es un
+  // pendiente: si no, la visita no se podria cerrar nunca.
+  return preguntas.filter(
+    (p) => p.obligatoria && !(p.id in dadas) && puntoAplica(p, dadas)
   );
-  return preguntas.filter((p) => p.obligatoria && !respondidas.has(p.id));
+}
+
+function herramientaCompetencia(db, contexto, { competidores }) {
+  if (!contexto.visitaId) {
+    return { resultado: { error: 'No hay ninguna visita abierta todavía.' } };
+  }
+
+  const visita = consultarUna(db, 'SELECT cliente_id FROM visitas WHERE id = ?', [contexto.visitaId]);
+  const guardados = [];
+  const rechazados = [];
+
+  enTransaccion(db, () => {
+    for (const entrada of competidores || []) {
+      const validacion = validarRegistro(entrada);
+      if (!validacion.ok) {
+        rechazados.push({ competidor: entrada.competidor, motivo: validacion.error });
+        continue;
+      }
+      const f = validacion.fila;
+
+      // Una relectura del mismo competidor y familia en la misma visita pisa a
+      // la anterior: el vendedor puede corregirse a mitad del relato.
+      ejecutar(
+        db,
+        'DELETE FROM competencia WHERE visita_id = ? AND competidor = ? AND familia = ?',
+        [contexto.visitaId, f.competidor, f.familia]
+      );
+      ejecutar(
+        db,
+        `INSERT INTO competencia (visita_id, cliente_id, competidor, competidor_crudo,
+                                  competidor_conocido, familia, participacion, participacion_valor,
+                                  precio_relativo, precio_valor, motivo, volumen, observacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          contexto.visitaId, visita?.cliente_id || null, f.competidor, f.competidorCrudo,
+          f.competidorConocido, f.familia, f.participacion, f.participacionValor,
+          f.precioRelativo, f.precioValor, f.motivo, f.volumen, f.observacion,
+        ]
+      );
+      guardados.push(`${f.competidor} / ${f.familia}`);
+    }
+  });
+
+  // Le devolvemos qué falta de cada registro, para que lo complete conversando
+  // en vez de pedirle todo junto de entrada.
+  const incompletos = consultar(
+    db,
+    `SELECT competidor, familia, participacion, precio_relativo, motivo
+     FROM competencia WHERE visita_id = ?`,
+    [contexto.visitaId]
+  )
+    .map((r) => {
+      const falta = [];
+      if (!r.participacion) falta.push('qué parte del consumo se lleva');
+      if (!r.precio_relativo) falta.push('cómo está su precio contra el nuestro');
+      if (!r.motivo) falta.push('por qué le compran a él');
+      return falta.length ? { competidor: r.competidor, familia: r.familia, falta } : null;
+    })
+    .filter(Boolean);
+
+  return {
+    resultado: {
+      guardados,
+      ...(rechazados.length ? { rechazados } : {}),
+      ...(incompletos.length ? { incompletos } : {}),
+      nota: incompletos.length
+        ? 'Completá lo que falta preguntándoselo con naturalidad, de a una cosa por vez y con botonera.'
+        : 'Quedó completo el cuadro de competencia de esta visita.',
+    },
+  };
 }
 
 function herramientaCerrar(db, contexto) {

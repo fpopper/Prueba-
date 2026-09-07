@@ -96,6 +96,23 @@ export function ultimasVisitas(db, clienteId, limite = 3) {
   );
 }
 
+// Lo que ya sabemos de la competencia en este cliente, de todas las visitas
+// anteriores. Se le muestra al vendedor en la ficha para que no vuelva a
+// preguntar de cero lo que ya contestaron.
+export function competenciaDelCliente(db, clienteId, limite = 8) {
+  return consultar(
+    db,
+    `SELECT competidor, familia, participacion, precio_relativo, motivo,
+            MAX(relevado_en) AS relevado_en
+     FROM competencia
+     WHERE cliente_id = ?
+     GROUP BY competidor, familia
+     ORDER BY relevado_en DESC
+     LIMIT ${Number(limite)}`,
+    [clienteId]
+  );
+}
+
 export function respuestasDeVisita(db, visitaId) {
   return consultar(
     db,
