@@ -15,11 +15,13 @@ import { altaVendedor } from '../db/queries.js';
 import {
   MINIMO_JABALINAS_PARA_GAP,
   UMBRAL_AGENTE_SECUNDARIO,
+  asignarSegmentos,
   calcularGapTomacables,
   grupoAgente,
+  modeloDeAtencion,
   pesos,
+  plazosInactividad,
   porcentaje,
-  segmentar,
   unidades,
 } from '../negocio/reglas.js';
 import { buscarFilaEncabezado, detectarColumnas, normalizarFila, parsearCsv } from './normalizar.js';
@@ -104,15 +106,19 @@ export function importar(rutaArchivo, opciones = {}) {
     }
 
     const insCliente = db.prepare(
-      `INSERT INTO clientes (codigo, nombre, nombre_busqueda, cuit, canal, localidad, provincia)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO clientes (codigo, nombre, nombre_busqueda, cuit, canal, localidad, provincia,
+                             deuda_vencida, condicion_pago)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const buscarPorNombre = db.prepare('SELECT id FROM clientes WHERE nombre_busqueda = ?');
     const buscarPorCodigo = db.prepare('SELECT id FROM clientes WHERE codigo = ?');
     const actualizarCliente = db.prepare(
       `UPDATE clientes SET canal = COALESCE(?, canal), localidad = COALESCE(?, localidad),
               provincia = COALESCE(?, provincia), cuit = COALESCE(?, cuit),
-              codigo = COALESCE(?, codigo), actualizado_en = datetime('now')
+              codigo = COALESCE(?, codigo),
+              deuda_vencida = COALESCE(?, deuda_vencida),
+              condicion_pago = COALESCE(?, condicion_pago),
+              actualizado_en = datetime('now')
        WHERE id = ?`
     );
     const insVenta = db.prepare(
@@ -135,12 +141,13 @@ export function importar(rutaArchivo, opciones = {}) {
           clienteId = existente.id;
           actualizarCliente.run(
             cliente.canal, cliente.localidad, cliente.provincia, cliente.cuit,
-            cliente.codigo, clienteId
+            cliente.codigo, cliente.deuda, cliente.condicionPago, clienteId
           );
         } else {
           const res = insCliente.run(
             cliente.codigo, cliente.nombre, cliente.nombreBusqueda, cliente.cuit,
-            cliente.canal, cliente.localidad, cliente.provincia
+            cliente.canal, cliente.localidad, cliente.provincia,
+            cliente.deuda, cliente.condicionPago
           );
           clienteId = Number(res.lastInsertRowid);
         }
@@ -297,7 +304,6 @@ export function recalcularMetricas(db) {
       const pctSecundario = secundario && totalAgentes > 0 ? secundario.imp / totalAgentes : 0;
 
       const info = resumenCliente.get(id, desde12m);
-      const banda = segmentar(f12);
       const diasSinComprar = info.ultima
         ? Math.round((fechaCorte.getTime() - new Date(`${info.ultima}T00:00:00Z`).getTime()) / DIA)
         : null;
@@ -308,8 +314,6 @@ export function recalcularMetricas(db) {
         f12prev,
         fTrim,
         fTrimPrev,
-        segmento: banda.letra,
-        modelo: `${banda.modelo} — ${banda.detalle}`,
         ultima: info.ultima,
         diasSinComprar,
         operaciones: info.operaciones || 0,
@@ -327,8 +331,16 @@ export function recalcularMetricas(db) {
       });
     }
 
-    // El ranking se calcula sobre el conjunto, por eso va despues del bucle.
+    // El ranking y el segmento se resuelven sobre el conjunto, por eso van
+    // despues del bucle: el segmento es la posicion de la cuenta en el acumulado
+    // de la cartera, no un umbral en pesos.
     calculados.sort((a, b) => b.f12 - a.f12);
+    const segmentos = asignarSegmentos(calculados.map((c) => ({ id: c.id, facturacion: c.f12 })));
+    for (const c of calculados) {
+      c.segmento = segmentos.get(c.id) || 'D';
+      const banda = modeloDeAtencion(c.segmento);
+      c.modelo = `${banda.modelo} — ${banda.detalle}`;
+    }
 
     const insMetricas = db.prepare(
       `INSERT INTO cliente_metricas (
@@ -383,11 +395,21 @@ export function importarVendedores(db, ruta) {
   const datos = tieneEncabezado ? filas.slice(1) : filas;
 
   let cargados = 0;
+  const rechazados = [];
   for (const fila of datos) {
     const [telefono, nombre, agente] = fila.map((c) => String(c || '').trim());
     if (!telefono || !nombre) continue;
-    altaVendedor(db, { telefono, nombre, agente: agente || null, grupo: grupoAgente(agente) });
+    // Un representante externo en el archivo no corta el import: se informa.
+    if (agente && grupoAgente(agente) !== 'Venta Directa') {
+      rechazados.push(`${nombre} (${agente})`);
+      continue;
+    }
+    altaVendedor(db, { telefono, nombre, agente: agente || null });
     cargados++;
+  }
+  if (rechazados.length) {
+    console.log('\n  ⚠ No se dieron de alta, no son de Venta Directa:');
+    for (const r of rechazados) console.log(`    - ${r}`);
   }
   return cargados;
 }

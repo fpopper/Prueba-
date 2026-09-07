@@ -20,6 +20,10 @@ export const ALIAS_COLUMNAS = {
   importe: ['importe neto', 'neto', 'importe', 'total', 'facturacion', 'facturación', 'monto', 'subtotal'],
   localidad: ['localidad', 'ciudad'],
   provincia: ['provincia', 'estado'],
+  // Cuenta corriente. Opcionales: si el reporte no las trae, el bot no muestra
+  // nada de cobranza en vez de inventarlo.
+  deuda: ['deuda vencida', 'saldo vencido', 'vencido', 'deuda', 'saldo deudor'],
+  condicionPago: ['condicion de pago', 'condición de pago', 'condicion pago', 'forma de pago', 'plazo de pago'],
 };
 
 // Devuelve { mapeo: {campo: indice}, faltantes: [campo] }
@@ -121,6 +125,8 @@ export function normalizarFila(fila, mapeo) {
       canal: String(col('canal') ?? '').trim().toUpperCase() || null,
       localidad: String(col('localidad') ?? '').trim() || null,
       provincia: String(col('provincia') ?? '').trim() || null,
+      deuda: mapeo.deuda !== undefined ? aNumero(col('deuda')) : null,
+      condicionPago: String(col('condicionPago') ?? '').trim() || null,
     },
     venta: {
       fecha,

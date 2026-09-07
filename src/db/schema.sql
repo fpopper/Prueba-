@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS clientes (
   localidad         TEXT,
   provincia         TEXT,
   direccion         TEXT,
+  -- Cuenta corriente, si el archivo importado la trae. Se le muestra al vendedor
+  -- antes de entrar: no se toma pedido nuevo sobre una cuenta con deuda vencida
+  -- sin pasar por Administracion.
+  deuda_vencida     REAL,
+  condicion_pago    TEXT,
   actualizado_en    TEXT DEFAULT (datetime('now'))
 );
 
@@ -116,12 +121,16 @@ CREATE TABLE IF NOT EXISTS visitas (
   cliente_id            INTEGER REFERENCES clientes(id),
   cliente_texto         TEXT,                 -- lo que escribio el vendedor (cliente nuevo / no encontrado)
   es_prospecto          INTEGER NOT NULL DEFAULT 0,
-  estado                TEXT NOT NULL DEFAULT 'DECLARADA', -- DECLARADA | EN_CURSO | COMPLETA | CANCELADA
+  -- DECLARADA | EN_CURSO | COMPLETA | INCOMPLETA | CANCELADA
+  -- INCOMPLETA: el vendedor la abrio y nunca la cerro; el sistema la cierra al
+  -- final del dia con lo que alcanzo a cargar.
+  estado                TEXT NOT NULL DEFAULT 'DECLARADA',
   declarada_en          TEXT DEFAULT (datetime('now')),
   iniciada_en           TEXT,
   cerrada_en            TEXT,
   ficha_snapshot        TEXT,                 -- JSON: la situacion del cliente al momento de la visita
   preguntas_especiales  TEXT,                 -- JSON: que preguntas extra se le pidieron y por que
+  recordatorio_en       TEXT,   -- cuando se le recordo que la tenia abierta
   latitud               REAL,
   longitud              REAL,
   canal_origen          TEXT DEFAULT 'whatsapp'

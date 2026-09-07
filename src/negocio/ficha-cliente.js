@@ -3,6 +3,7 @@
 // en la visita) y el texto formateado para WhatsApp.
 import {
   competenciaDelCliente,
+  compromisoAnterior,
   familiasDelCliente,
   obtenerCliente,
   obtenerMetricas,
@@ -14,9 +15,9 @@ import {
   CAIDA_CHURN,
   CONCENTRACION_ALERTA,
   CONCENTRACION_CRITICA,
-  DIAS_INACTIVO,
-  DIAS_INACTIVO_GRAVE,
   RATIO_TOMACABLES_OBJETIVO,
+  SEGMENTOS_CON_ALERTA_CHURN,
+  plazosInactividad,
   pesos,
   porcentaje,
   unidades,
@@ -31,6 +32,7 @@ export function armarFicha(db, clienteId) {
   const empresa = contextoEmpresa(db);
   const visitas = ultimasVisitas(db, clienteId);
   const competencia = competenciaDelCliente(db, clienteId);
+  const compromiso = compromisoAnterior(db, clienteId);
 
   const variacionAnual = variacion(m.facturacion_12m, m.facturacion_12m_prev);
   const variacionTrim = variacion(m.facturacion_trim, m.facturacion_trim_prev);
@@ -43,6 +45,8 @@ export function armarFicha(db, clienteId) {
       canal: cliente.canal,
       localidad: cliente.localidad,
       provincia: cliente.provincia,
+      deudaVencida: cliente.deuda_vencida ?? null,
+      condicionPago: cliente.condicion_pago || null,
     },
     metricas: {
       facturacion12m: Number(m.facturacion_12m || 0),
@@ -76,6 +80,7 @@ export function armarFicha(db, clienteId) {
     })),
     empresa,
     competencia,
+    compromiso,
     ultimasVisitas: visitas,
     esProspecto: !m.cliente_id,
   };
@@ -109,22 +114,29 @@ function detectarAlertas(ficha) {
     });
   }
 
-  if (m.segmento === 'A' && m.variacionTrim !== null && m.variacionTrim <= -CAIDA_CHURN) {
+  if (
+    SEGMENTOS_CON_ALERTA_CHURN.includes(m.segmento) &&
+    m.variacionTrim !== null &&
+    m.variacionTrim <= -CAIDA_CHURN
+  ) {
     alertas.push({
       nivel: 'CRITICO',
-      texto: `Riesgo de churn: cuenta clave con caida de ${porcentaje(Math.abs(m.variacionTrim))} en el ultimo trimestre.`,
+      texto: `Riesgo de churn: cuenta segmento ${m.segmento} con caida de ${porcentaje(Math.abs(m.variacionTrim))} en el ultimo trimestre.`,
     });
   }
 
-  if (m.diasSinComprar !== null && m.diasSinComprar >= DIAS_INACTIVO_GRAVE) {
+  // El plazo depende del canal: 60 dias sin comprar en un distribuidor es una
+  // alerta, en una constructora es normal.
+  const plazos = plazosInactividad(ficha.cliente.canal);
+  if (m.diasSinComprar !== null && m.diasSinComprar >= plazos.perdido) {
     alertas.push({
       nivel: 'CRITICO',
       texto: `Sin comprar hace ${m.diasSinComprar} dias. Cuenta practicamente perdida.`,
     });
-  } else if (m.diasSinComprar !== null && m.diasSinComprar >= DIAS_INACTIVO) {
+  } else if (m.diasSinComprar !== null && m.diasSinComprar >= plazos.dormido) {
     alertas.push({
       nivel: 'ALERTA',
-      texto: `Sin comprar hace ${m.diasSinComprar} dias.`,
+      texto: `Sin comprar hace ${m.diasSinComprar} dias (para ${ficha.cliente.canal || 'este canal'} ya es mucho).`,
     });
   }
 
@@ -132,6 +144,13 @@ function detectarAlertas(ficha) {
     alertas.push({
       nivel: 'OPORTUNIDAD',
       texto: `Gap de tomacables estimado: ${unidades(m.gapTomacablesU)} u. ≈ ${pesos(m.gapTomacablesPesos)}.`,
+    });
+  }
+
+  if (ficha.cliente.deudaVencida > 0) {
+    alertas.push({
+      nivel: 'CRITICO',
+      texto: `Tiene ${pesos(ficha.cliente.deudaVencida)} de deuda vencida. Antes de tomar pedido, hablalo con Administracion.`,
     });
   }
 
@@ -210,6 +229,9 @@ export function formatearFicha(ficha) {
   if (m.agentePrincipal) {
     L.push(`👤 Atiende: ${m.agentePrincipal}`);
   }
+  if (c.condicionPago) {
+    L.push(`💳 Condicion de pago: ${c.condicionPago}`);
+  }
 
   // Que compra y que no compra: es lo que dispara la charla de cross-selling.
   if (ficha.familias.length) {
@@ -248,6 +270,15 @@ export function formatearFicha(ficha) {
     const u = ficha.ultimasVisitas[0];
     L.push('');
     L.push(`🕘 Ultima visita relevada: ${formatearFecha(u.cerrada_en)} por ${u.vendedor}`);
+  }
+
+  // Lo que quedo comprometido la vez anterior. Se muestra como dato: no ocupa
+  // uno de los cuatro lugares de preguntas especiales.
+  if (ficha.compromiso) {
+    L.push(
+      `📌 Quedo pendiente de la visita anterior: "${ficha.compromiso.respuesta}" ` +
+        `(${formatearFecha(ficha.compromiso.cerrada_en)}, ${ficha.compromiso.vendedor})`
+    );
   }
 
   return L.join('\n');

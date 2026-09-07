@@ -17,10 +17,11 @@ import { competidorEsperado } from './competencia.js';
 import {
   CAIDA_CHURN,
   CONCENTRACION_ALERTA,
-  DIAS_INACTIVO,
   MINIMO_JABALINAS_PARA_GAP,
   RATIO_GAP_INVERTIDO,
   RATIO_TOMACABLES_OBJETIVO,
+  SEGMENTOS_CON_ALERTA_CHURN,
+  plazosInactividad,
   pesos,
   porcentaje,
   unidades,
@@ -37,16 +38,30 @@ function tieneFamilia(ficha, patron) {
 }
 
 export const REGLAS = [
+  // --- Cobranza --------------------------------------------------------------
+  {
+    id: 'DEUDA_VENCIDA',
+    nivel: 'CRITICO',
+    aplica: (f) => Number(f.cliente.deudaVencida || 0) > 0,
+    motivo: (f) =>
+      `Tiene ${pesos(f.cliente.deudaVencida)} de deuda vencida` +
+      `${f.cliente.condicionPago ? `, con condicion ${f.cliente.condicionPago}` : ''}. ` +
+      'No se toma pedido nuevo sobre una cuenta vencida sin pasar por Administracion.',
+    pregunta:
+      '¿Que dijeron de la deuda vencida? ¿Hay fecha de pago comprometida o hay un problema de fondo?',
+    tipo: 'texto',
+  },
+
   // --- Riesgo de perder la cuenta -------------------------------------------
   {
     id: 'CHURN_CUENTA_CLAVE',
     nivel: 'CRITICO',
     aplica: (f) =>
-      f.metricas.segmento === 'A' &&
+      SEGMENTOS_CON_ALERTA_CHURN.includes(f.metricas.segmento) &&
       f.metricas.variacionTrim !== null &&
       f.metricas.variacionTrim <= -CAIDA_CHURN,
     motivo: (f) =>
-      `Es cuenta clave (segmento A) y cayo ${porcentaje(Math.abs(f.metricas.variacionTrim))} en el trimestre.`,
+      `Es segmento ${f.metricas.segmento} y cayo ${porcentaje(Math.abs(f.metricas.variacionTrim))} en el trimestre.`,
     pregunta:
       '¿Por que bajaron las compras? ¿Entro otro proveedor, se les freno la obra, o hubo un problema con nosotros?',
     tipo: 'texto',
@@ -55,8 +70,11 @@ export const REGLAS = [
     id: 'CLIENTE_DORMIDO',
     nivel: 'CRITICO',
     aplica: (f) =>
-      f.metricas.diasSinComprar !== null && f.metricas.diasSinComprar >= DIAS_INACTIVO,
-    motivo: (f) => `No compra hace ${f.metricas.diasSinComprar} dias.`,
+      f.metricas.diasSinComprar !== null &&
+      f.metricas.diasSinComprar >= plazosInactividad(f.cliente.canal).dormido,
+    motivo: (f) =>
+      `No compra hace ${f.metricas.diasSinComprar} dias, y para ${f.cliente.canal || 'este canal'} ` +
+      `el limite es ${plazosInactividad(f.cliente.canal).dormido}.`,
     pregunta: '¿Que pasa que dejaron de comprar? ¿A quien le estan comprando hoy y por que?',
     tipo: 'texto',
   },

@@ -18,6 +18,12 @@ import { atenderMensaje, modoActual } from './chat/gestor.js';
 import { extraerMensajes, firmaValida, enviarMensaje, marcarLeido } from './whatsapp/meta.js';
 import { contextoEmpresa } from './db/queries.js';
 import { transcripcionDisponible } from './ia/transcribir.js';
+import {
+  cerrarVisitasAbandonadas,
+  marcarRecordada,
+  textoRecordatorio,
+  visitasParaRecordar,
+} from './chat/mantenimiento.js';
 import { formatearFecha } from './negocio/ficha-cliente.js';
 
 const db = abrirDb();
@@ -211,6 +217,7 @@ function servirPanel(res, url) {
  th{background:#f0f0f0} .tag{background:#eee;border-radius:4px;padding:0 .3rem;font-size:.7rem}
  .estado{font-weight:600;font-size:.75rem}
  .COMPLETA{color:#127c3a}.EN_CURSO{color:#b06a00}.CANCELADA{color:#999}
+ .INCOMPLETA{color:#b03428}
  a{color:#0a58ca}
 </style></head><body>
 <h1>Relevamiento de visitas — FACBSA</h1>
@@ -302,6 +309,25 @@ function responder(res, codigo, cuerpo) {
   res.writeHead(codigo, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(cuerpo, null, 2));
 }
+
+// Mantenimiento de las visitas que quedaron abiertas: se le recuerda al
+// vendedor y, pasadas las horas, se cierran como INCOMPLETAS con lo cargado.
+const CADA_MEDIA_HORA = 30 * 60 * 1000;
+
+async function mantenimiento() {
+  try {
+    for (const v of visitasParaRecordar(db)) {
+      if (v.telefono) await enviarMensaje(v.telefono, { texto: textoRecordatorio(v.cliente_texto) });
+      marcarRecordada(db, v.id);
+    }
+    const cerradas = cerrarVisitasAbandonadas(db);
+    if (cerradas) console.log(`[mantenimiento] ${cerradas} visita(s) cerradas como incompletas`);
+  } catch (error) {
+    console.error('[mantenimiento] error:', error);
+  }
+}
+
+setInterval(mantenimiento, CADA_MEDIA_HORA).unref();
 
 servidor.listen(config.puerto, () => {
   console.log(`\n  FACBSA · relevamiento de visitas`);

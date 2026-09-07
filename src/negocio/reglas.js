@@ -22,54 +22,87 @@ export const UMBRAL_AGENTE_SECUNDARIO = 0.25;
 export const CANALES_CONOCIDOS = ['EMPRESA ENERGIA', 'DISTRIBUIDOR', 'CONSTRUCTORA'];
 
 // --- 3. Segmentacion de clientes --------------------------------------------
-// Bandas por facturacion anual en pesos nominales del periodo analizado.
-export const SEGMENTOS = [
-  {
-    letra: 'A',
-    desde: 50_000_000,
-    hasta: Infinity,
-    modelo: 'CLAVE',
-    detalle: 'Contrato marco anual. Alerta de churn si cae mas de 15% en un trimestre.',
-  },
-  {
-    letra: 'B',
-    desde: 10_000_000,
-    hasta: 50_000_000,
-    modelo: 'ESTRATEGICO',
-    detalle: 'Visita regular. Programa de upgrading hacia segmento A. Cross-selling activo.',
-  },
-  {
-    letra: 'C',
-    desde: 1_000_000,
-    hasta: 10_000_000,
-    modelo: 'DESARROLLO',
-    detalle: 'Cross-selling y aumento de frecuencia. Identificar palanca de crecimiento.',
-  },
-  {
-    letra: 'D',
-    desde: 0,
-    hasta: 1_000_000,
-    modelo: 'REVISAR RENTABILIDAD',
-    detalle: 'Evaluar pedido minimo de $1M o migrar a canal digital / mayorista.',
-  },
+// Definida por PERCENTILES DE LA CARTERA, no por umbrales en pesos.
+//
+// Con la inflacion argentina una banda fija en pesos deja de significar nada en
+// pocos meses: un cliente "sube" de segmento sin haber vendido una unidad mas.
+// El corte es el mismo Pareto que ya usa la direccion para leer la cartera, asi
+// que el segmento y el analisis hablan el mismo idioma.
+//
+//   A -> las cuentas que acumulan el primer 50% de la facturacion
+//   B -> hasta el 80%
+//   C -> hasta el 95%
+//   D -> la cola
+export const CORTES_PARETO = [
+  { letra: 'A', hasta: 0.50, modelo: 'CLAVE', detalle: 'Contrato marco anual. Alerta de churn si cae mas de 15% en un trimestre.' },
+  { letra: 'B', hasta: 0.80, modelo: 'ESTRATEGICO', detalle: 'Visita regular. Programa de upgrading hacia segmento A. Cross-selling activo.' },
+  { letra: 'C', hasta: 0.95, modelo: 'DESARROLLO', detalle: 'Cross-selling y aumento de frecuencia. Identificar palanca de crecimiento.' },
+  { letra: 'D', hasta: 1.00, modelo: 'REVISAR RENTABILIDAD', detalle: 'Evaluar pedido minimo o migrar a canal digital / mayorista.' },
 ];
 
-export function segmentar(facturacion12m) {
-  const banda = SEGMENTOS.find((s) => facturacion12m >= s.desde && facturacion12m < s.hasta);
-  return banda || SEGMENTOS[SEGMENTOS.length - 1];
+export function modeloDeAtencion(letra) {
+  return CORTES_PARETO.find((c) => c.letra === letra) || CORTES_PARETO[CORTES_PARETO.length - 1];
 }
 
-// Caida trimestral que dispara alerta de churn en cuentas clave.
+/**
+ * Asigna el segmento a cada cuenta segun donde cae en el acumulado de la
+ * facturacion de la cartera.
+ * @param {Array<{id:*, facturacion:number}>} cuentas
+ * @returns {Map<*, string>} id -> letra
+ */
+export function asignarSegmentos(cuentas) {
+  const activas = cuentas.filter((c) => c.facturacion > 0).sort((a, b) => b.facturacion - a.facturacion);
+  const total = activas.reduce((suma, c) => suma + c.facturacion, 0);
+  const segmentos = new Map();
+
+  // Una cuenta sin facturacion en el periodo no tiene posicion en la cartera.
+  for (const c of cuentas) if (c.facturacion <= 0) segmentos.set(c.id, 'D');
+  if (total <= 0) return segmentos;
+
+  // Se recorre la cartera de mayor a menor asignando la banda actual, y recien
+  // se pasa a la siguiente cuando el acumulado cruza el corte. Asi la cuenta
+  // que cruza el 50% queda DENTRO de A, que es lo que significa "las cuentas
+  // que acumulan el primer 50%", y con una sola cuenta activa esa cuenta es A.
+  let acumulado = 0;
+  let banda = 0;
+  for (const cuenta of activas) {
+    segmentos.set(cuenta.id, CORTES_PARETO[banda].letra);
+    acumulado += cuenta.facturacion;
+    while (banda < CORTES_PARETO.length - 1 && acumulado / total >= CORTES_PARETO[banda].hasta) {
+      banda++;
+    }
+  }
+
+  return segmentos;
+}
+
+// Caida trimestral que dispara alerta de churn. Aplica a A y a B: en B es donde
+// todavia se puede revertir con una visita; cuando cae una A muchas veces ya es tarde.
 export const CAIDA_CHURN = 0.15;
+export const SEGMENTOS_CON_ALERTA_CHURN = ['A', 'B'];
 
 // Una cuenta que supera estos porcentajes del total de la empresa es un riesgo
 // de concentracion y merece contrato marco.
-export const CONCENTRACION_ALERTA = 0.15;
-export const CONCENTRACION_CRITICA = 0.25;
+export const CONCENTRACION_ALERTA = 0.10;
+export const CONCENTRACION_CRITICA = 0.20;
 
 // Dias sin comprar a partir de los cuales el cliente se considera dormido.
-export const DIAS_INACTIVO = 90;
-export const DIAS_INACTIVO_GRAVE = 180;
+// El plazo depende del canal porque el ciclo de compra no tiene nada que ver:
+// una distribuidora electrica compra por licitacion, un distribuidor deberia
+// reponer seguido, y una constructora compra por obra.
+export const INACTIVIDAD_POR_CANAL = {
+  'EMPRESA ENERGIA': { dormido: 120, perdido: 240 },
+  DISTRIBUIDOR: { dormido: 60, perdido: 120 },
+  CONSTRUCTORA: { dormido: 180, perdido: 365 },
+};
+
+// Para un canal que no esta en la tabla, o un cliente sin canal cargado.
+export const INACTIVIDAD_POR_DEFECTO = { dormido: 90, perdido: 180 };
+
+export function plazosInactividad(canal) {
+  const clave = normalizarTexto(canal || '');
+  return INACTIVIDAD_POR_CANAL[clave] || INACTIVIDAD_POR_DEFECTO;
+}
 
 // --- 4. Familias de producto -------------------------------------------------
 // El rol comercial es una decision de negocio ya tomada. Una familia que no
@@ -117,12 +150,14 @@ export function rolFamilia(familia) {
 // --- 5. Cross-selling --------------------------------------------------------
 // Los tomacables se asocian a JABALINAS, no a metros de cable. Es la correccion
 // mas importante del modelo comercial.
-export const RATIO_TOMACABLES_OBJETIVO = 0.5; // 1 tomacable cada 2 jabalinas
+// 1 tomacable cada 1,5 jabalinas (definido por Comercial, reemplaza al 0,50
+// que se habia usado como hipotesis inicial de trabajo).
+export const RATIO_TOMACABLES_OBJETIVO = 2 / 3;
 // Por debajo de este volumen de jabalinas el ratio es ruido estadistico.
 export const MINIMO_JABALINAS_PARA_GAP = 20;
-// Ratio muy por encima del objetivo: posible gap invertido (compra las
-// jabalinas en otro lado).
-export const RATIO_GAP_INVERTIDO = 0.75;
+// Mas tomacables que jabalinas: gap invertido. Probablemente las jabalinas se
+// las compra a otro.
+export const RATIO_GAP_INVERTIDO = 1.0;
 
 export function calcularGapTomacables(jabalinas, tomacables, precioPromedioTomacable) {
   if (!jabalinas || jabalinas < MINIMO_JABALINAS_PARA_GAP) {

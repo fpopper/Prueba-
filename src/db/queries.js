@@ -1,7 +1,7 @@
 // Consultas de negocio sobre la base. Todo lo que el chat necesita saber de un
 // cliente pasa por aca.
 import { consultar, consultarUna, ejecutar, leerParametro } from './db.js';
-import { normalizarTexto } from '../negocio/reglas.js';
+import { grupoAgente, normalizarTexto } from '../negocio/reglas.js';
 
 // --- Vendedores --------------------------------------------------------------
 
@@ -24,13 +24,27 @@ export function normalizarTelefono(telefono) {
   return soloDigitos;
 }
 
-export function altaVendedor(db, { telefono, nombre, agente = null, grupo = null }) {
+/**
+ * Alta de un vendedor habilitado.
+ *
+ * La herramienta es solo para Venta Directa: los representantes externos no la
+ * usan, porque la ficha expone facturacion, ranking y peso de la cuenta sobre el
+ * total de FACBSA. Un alta con un agente que no es de Venta Directa se rechaza.
+ */
+export function altaVendedor(db, { telefono, nombre, agente = null, grupo = null, forzar = false }) {
+  if (!forzar && agente && grupoAgente(agente) !== 'Venta Directa') {
+    throw new Error(
+      `"${agente}" no es de Venta Directa. La herramienta es solo para la fuerza de ventas interna; ` +
+        'si de verdad hace falta darlo de alta, usa forzar: true.'
+    );
+  }
+
   return ejecutar(
     db,
     `INSERT INTO vendedores (telefono, nombre, agente, grupo) VALUES (?, ?, ?, ?)
      ON CONFLICT(telefono) DO UPDATE SET nombre = excluded.nombre,
        agente = excluded.agente, grupo = excluded.grupo, activo = 1`,
-    [normalizarTelefono(telefono), nombre, agente, grupo]
+    [normalizarTelefono(telefono), nombre, agente, grupo || (agente ? grupoAgente(agente) : null)]
   );
 }
 
@@ -109,6 +123,23 @@ export function competenciaDelCliente(db, clienteId, limite = 8) {
      GROUP BY competidor, familia
      ORDER BY relevado_en DESC
      LIMIT ${Number(limite)}`,
+    [clienteId]
+  );
+}
+
+// El proximo paso que el vendedor comprometio en la ultima visita cerrada.
+// Se le muestra en la ficha de la siguiente para que no arranque de cero.
+export function compromisoAnterior(db, clienteId) {
+  return consultarUna(
+    db,
+    `SELECT r.respuesta, v.cerrada_en, ve.nombre AS vendedor
+     FROM respuestas r
+     JOIN visitas v ON v.id = r.visita_id
+     JOIN vendedores ve ON ve.id = v.vendedor_id
+     WHERE v.cliente_id = ? AND r.pregunta_id = 'proximo_paso'
+       AND v.estado IN ('COMPLETA', 'INCOMPLETA')
+       AND r.respuesta IS NOT NULL AND r.respuesta <> '(omitida)'
+     ORDER BY v.cerrada_en DESC LIMIT 1`,
     [clienteId]
   );
 }

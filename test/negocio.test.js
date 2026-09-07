@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import { test, describe } from 'node:test';
 import {
+  asignarSegmentos,
   calcularGapTomacables,
   grupoAgente,
   normalizarFamilia,
   normalizarTexto,
   pesos,
-  segmentar,
+  plazosInactividad,
 } from '../src/negocio/reglas.js';
 import { preguntasEspeciales } from '../src/negocio/preguntas-especiales.js';
 import { validarRespuesta, armarCuestionario } from '../src/chat/cuestionario.js';
@@ -27,24 +28,64 @@ describe('identidad de agentes', () => {
   });
 });
 
-describe('segmentacion', () => {
-  test('las bandas respetan los umbrales definidos', () => {
-    assert.equal(segmentar(80_000_000).letra, 'A');
-    assert.equal(segmentar(50_000_000).letra, 'A');
-    assert.equal(segmentar(49_999_999).letra, 'B');
-    assert.equal(segmentar(10_000_000).letra, 'B');
-    assert.equal(segmentar(5_000_000).letra, 'C');
-    assert.equal(segmentar(999_999).letra, 'D');
-    assert.equal(segmentar(0).letra, 'D');
+describe('segmentacion por percentiles de la cartera', () => {
+  // Definida por Comercial: A = el primer 50% de la facturacion acumulada,
+  // B hasta el 80%, C hasta el 95%, D la cola. No hay umbrales en pesos.
+  const cartera = [
+    { id: 'grande', facturacion: 100 },
+    { id: 'media', facturacion: 60 },
+    { id: 'chica', facturacion: 25 },
+    { id: 'cola', facturacion: 10 },
+    { id: 'minima', facturacion: 5 },
+    { id: 'sin_compras', facturacion: 0 },
+  ];
+
+  test('el corte sigue el acumulado de la facturacion, no un monto', () => {
+    const segmentos = asignarSegmentos(cartera);
+    assert.equal(segmentos.get('grande'), 'A');
+    assert.equal(segmentos.get('media'), 'B');
+    assert.equal(segmentos.get('chica'), 'C');
+    // 'cola' entra todavia en C porque es la que cruza el 95%; recien la
+    // siguiente cae en la cola de la cartera.
+    assert.equal(segmentos.get('cola'), 'C');
+    assert.equal(segmentos.get('minima'), 'D');
+  });
+
+  test('una cuenta sin compras en el periodo cae en D', () => {
+    assert.equal(asignarSegmentos(cartera).get('sin_compras'), 'D');
+  });
+
+  test('multiplicar toda la cartera por inflacion no cambia ningun segmento', () => {
+    const antes = asignarSegmentos(cartera);
+    const inflada = cartera.map((c) => ({ ...c, facturacion: c.facturacion * 3.7 }));
+    const despues = asignarSegmentos(inflada);
+    for (const c of cartera) assert.equal(despues.get(c.id), antes.get(c.id));
+  });
+
+  test('con una sola cuenta activa, esa cuenta es A', () => {
+    assert.equal(asignarSegmentos([{ id: 'unica', facturacion: 1000 }]).get('unica'), 'A');
+  });
+});
+
+describe('inactividad por canal', () => {
+  test('cada canal tiene su plazo, segun su ciclo de compra', () => {
+    assert.equal(plazosInactividad('DISTRIBUIDOR').dormido, 60);
+    assert.equal(plazosInactividad('EMPRESA ENERGIA').dormido, 120);
+    assert.equal(plazosInactividad('CONSTRUCTORA').dormido, 180);
+  });
+
+  test('un canal desconocido usa el plazo por defecto', () => {
+    assert.deepEqual(plazosInactividad('MAYORISTA'), { dormido: 90, perdido: 180 });
+    assert.deepEqual(plazosInactividad(null), { dormido: 90, perdido: 180 });
   });
 });
 
 describe('gap de tomacables', () => {
-  test('el objetivo es 1 tomacable cada 2 jabalinas', () => {
-    const r = calcularGapTomacables(100, 20, 10_000);
+  test('el objetivo es 1 tomacable cada 1,5 jabalinas', () => {
+    const r = calcularGapTomacables(150, 20, 10_000);
     assert.equal(r.aplica, true);
-    assert.equal(r.gapUnidades, 30); // 100 * 0,5 - 20
-    assert.equal(r.gapPesos, 300_000);
+    assert.equal(Math.round(r.gapUnidades), 80); // 150 / 1,5 - 20
+    assert.equal(Math.round(r.gapPesos), 800_000);
   });
 
   test('por debajo de 20 jabalinas el ratio es ruido y no se calcula', () => {
@@ -52,7 +93,7 @@ describe('gap de tomacables', () => {
   });
 
   test('un cliente que ya cumple el ratio no tiene gap', () => {
-    assert.equal(calcularGapTomacables(100, 60, 10_000).gapUnidades, 0);
+    assert.equal(calcularGapTomacables(150, 100, 10_000).gapUnidades, 0);
   });
 });
 
@@ -106,6 +147,16 @@ describe('preguntas especiales', () => {
     assert.equal(preguntas[0].nivel, 'CRITICO');
   });
 
+  test('la alerta de caida tambien alcanza al segmento B', () => {
+    const ficha = fichaDe({ metricas: { segmento: 'B', variacionTrim: -0.2 } });
+    assert.ok(preguntasEspeciales(ficha).some((p) => p.id === 'CHURN_CUENTA_CLAVE'));
+  });
+
+  test('en segmento C una caida igual no dispara la alerta', () => {
+    const ficha = fichaDe({ metricas: { segmento: 'C', variacionTrim: -0.2 } });
+    assert.ok(!preguntasEspeciales(ficha).some((p) => p.id === 'CHURN_CUENTA_CLAVE'));
+  });
+
   test('un cliente con gap de tomacables recibe la pregunta del gap', () => {
     const ficha = fichaDe({
       metricas: { jabalinas: 400, tomacables: 30, ratioTomacables: 0.075, gapTomacablesU: 170, gapTomacablesPesos: 2_000_000 },
@@ -115,7 +166,7 @@ describe('preguntas especiales', () => {
   });
 
   test('un cliente que compra mas tomacables que jabalinas dispara el gap invertido', () => {
-    const ficha = fichaDe({ metricas: { jabalinas: 100, tomacables: 90, ratioTomacables: 0.9 } });
+    const ficha = fichaDe({ metricas: { jabalinas: 100, tomacables: 120, ratioTomacables: 1.2 } });
     const ids = preguntasEspeciales(ficha).map((p) => p.id);
     assert.ok(ids.includes('GAP_INVERTIDO_JABALINAS'));
   });
@@ -209,5 +260,20 @@ describe('utilidades de formato', () => {
   });
   test('normalizarTexto saca acentos y mayusculiza', () => {
     assert.equal(normalizarTexto(' Distribuídora  Eléctrica '), 'DISTRIBUIDORA ELECTRICA');
+  });
+});
+
+describe('visitas que quedan abiertas', () => {
+  test('los plazos son los definidos por Comercial', async () => {
+    const m = await import('../src/chat/mantenimiento.js');
+    assert.equal(m.HORAS_PARA_RECORDAR, 3);
+    assert.equal(m.HORAS_PARA_CERRAR, 12);
+  });
+
+  test('el recordatorio nombra al cliente y no pide comandos', async () => {
+    const { textoRecordatorio } = await import('../src/chat/mantenimiento.js');
+    const texto = textoRecordatorio('ELECTRO MAYORISTA');
+    assert.match(texto, /ELECTRO MAYORISTA/);
+    assert.ok(!/escrib[ií] FIN/i.test(texto));
   });
 });
