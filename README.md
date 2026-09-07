@@ -223,6 +223,29 @@ la botonera tal como se ve en WhatsApp y deja grabar audio con el micrófono.
 Clientes de prueba: `edesur`, `electro mayorista`, `pampa`, `junin`,
 `montajes del norte`, `ferretería rosario`.
 
+### Un archivo suelto para probar sin servidor
+
+```bash
+npm run demo:offline                       # -> demo/simulador-facbsa.html
+npm run demo:offline -- --salida ~/simulador.html
+```
+
+Genera **un solo archivo HTML** con los clientes, las fichas y las preguntas que
+produce el sistema real, para abrir con doble clic o pasárselo a un vendedor.
+Sirve para validar la conversación sin instalar nada del lado de quien lo prueba.
+
+- **Sin clave** funciona en modo guiado: relevamiento pregunta por pregunta, con
+  la misma botonera y las mismas reglas. No necesita internet.
+- **Con una clave de la API de Claude** pegada en Ajustes, se activa el agente
+  conversacional. La clave queda en el navegador de quien lo abre.
+- El dictado usa el reconocimiento de voz del navegador (Chrome o Edge). Abierto
+  como archivo suelto, Chrome no siempre da permiso de micrófono: si no arranca,
+  servir la carpeta (`npx serve .`) y abrirlo desde `localhost`, que sí es un
+  origen habilitado.
+
+Si se corre después de importar el Excel real, el archivo sale con los clientes
+reales de FACBSA — conviene tenerlo en cuenta antes de compartirlo.
+
 ### Encender el modo agente
 
 ```bash
@@ -418,6 +441,7 @@ src/
     normalizar.js               detección de columnas y normalización
     xlsx.js                     lector de .xlsx sin dependencias
 public/simulador.html           simulador de WhatsApp, con micrófono
+demo/                           generador del simulador en un archivo suelto
 scripts/                        demo, vendedores, exportación, mapa de competencia
 test/                           reglas de negocio, flujo guiado y agente
 ```

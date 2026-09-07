@@ -1,0 +1,761 @@
+<script type="module">
+'use strict';
+
+// Simulador del asistente de visitas de FACBSA, en un solo archivo.
+//
+// Dos modos, igual que el sistema real:
+//   guiado  -> sin clave: relevamiento pregunta por pregunta. No necesita internet.
+//   agente  -> con una clave de la API de Claude: conversación en lenguaje natural.
+//
+// El dictado usa el reconocimiento de voz del navegador. En el sistema real lo
+// hace el servidor con Whisper o Deepgram, que entiende bastante mejor los
+// términos del rubro.
+
+const chat = document.getElementById('chat');
+const entrada = document.getElementById('entrada');
+const form = document.getElementById('form');
+const btnMandar = document.getElementById('mandar');
+const btnHablar = document.getElementById('hablar');
+const selVendedor = document.getElementById('vendedor');
+const sub = document.getElementById('sub');
+const pie = document.getElementById('pieTelefono');
+const cartera = document.getElementById('cartera');
+const estados = document.getElementById('estados');
+const inputClave = document.getElementById('clave');
+const btnClave = document.getElementById('guardarClave');
+const avisoClave = document.getElementById('avisoClave');
+const estadoModo = document.getElementById('estadoModo');
+
+const MODELO = 'claude-opus-5';
+const CLAVE_GUARDADA = 'facbsa.clave';
+
+let agente = null;          // función que consulta a Claude, si hay clave
+let ocupado = false;
+let opcionesPendientes = null;
+
+const estado = { visita: null, turnos: [], guiado: null };
+
+const PARTICIPACION = ['Todo se lo compran', 'La mayor parte', 'Mitad y mitad', 'Una parte chica', 'Casi nada'];
+const PRECIO_COMP = ['Mucho más barato', 'Algo más barato', 'Parecido al nuestro', 'Algo más caro', 'No lo sabe'];
+const MOTIVOS = ['Precio', 'Entrega o stock', 'Plazo de pago', 'Costumbre o relación', 'Lo pide el pliego', 'No nos conocían'];
+
+// --- Utilidades --------------------------------------------------------------
+
+const escapar = (t) => String(t ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const marcado = (t) => escapar(t).replace(/\*([^*\n]+)\*/g, '<b>$1</b>').replace(/_([^_\n]+)_/g, '<i>$1</i>');
+const reloj = () => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+const sinAcentos = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+const plata = (n) => (Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(1).replace('.', ',')}M` : `$${Math.round(n / 1000)}k`);
+
+function globo(texto, quien, extra = '') {
+  const div = document.createElement('div');
+  div.className = `globo ${quien}${extra ? ` ${extra}` : ''}`;
+  div.innerHTML = marcado(texto) + `<span class="sello">${reloj()}</span>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function globoVoz(segundos) {
+  const div = document.createElement('div');
+  div.className = 'globo yo voz';
+  div.innerHTML = `🎤 <span class="onda"></span> <span>${segundos}"</span><span class="sello">${reloj()}</span>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function botonera(opciones) {
+  if (!opciones?.length) return;
+  const caja = document.createElement('div');
+  caja.className = 'opciones';
+  if (opciones.length > 3) {
+    const t = document.createElement('div');
+    t.className = 'titulo-lista';
+    t.textContent = '☰ Elegir';
+    caja.appendChild(t);
+  }
+  opciones.slice(0, 10).forEach((op) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = op;
+    b.addEventListener('click', () => {
+      caja.querySelectorAll('button').forEach((x) => (x.disabled = true));
+      recibir(op);
+    });
+    caja.appendChild(b);
+  });
+  chat.appendChild(caja);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+let puntitos = null;
+function pensando(encendido) {
+  if (encendido && !puntitos) {
+    puntitos = document.createElement('div');
+    puntitos.className = 'escribiendo';
+    puntitos.innerHTML = '<span></span><span></span><span></span>';
+    chat.appendChild(puntitos);
+    chat.scrollTop = chat.scrollHeight;
+  } else if (!encendido && puntitos) {
+    puntitos.remove();
+    puntitos = null;
+  }
+}
+
+function bloquear(v) {
+  ocupado = v;
+  btnMandar.disabled = v;
+  btnHablar.disabled = v || !reconocimiento;
+  sub.textContent = v ? 'escribiendo…' : 'en línea';
+}
+
+// --- Cartera -----------------------------------------------------------------
+
+const SITUACION = {
+  CHURN_CUENTA_CLAVE: 'Cuenta clave cayendo', CLIENTE_DORMIDO: 'Dejó de comprar',
+  GAP_TOMACABLES: 'Gap de tomacables', GAP_INVERTIDO_JABALINAS: 'Gap invertido',
+  SIN_CONJUNTOS: 'No compra conjuntos', PARARRAYOS_SUELTO: 'Pararrayos sueltos',
+  CONTRATO_MARCO: 'Concentración de cartera', CUENTA_COMPARTIDA: 'Cuenta compartida',
+  RENTABILIDAD_D: 'Revisar rentabilidad', HOMOLOGACION_ENERGIA: 'Licitación y homologación',
+  UPGRADE_B_A: 'Candidata a segmento A', PALANCA_C: 'Buscar palanca',
+  MIGRACION_JABALINA: 'Migrar a 16/18', PROSPECTO_NUEVO: 'Sin historia',
+  DISTRIBUIDOR_STOCK: 'Rotación y góndola', CONSTRUCTORA_OBRA: 'Obras a 6 meses',
+  COMPETENCIA_CONOCIDA: 'Competencia instalada',
+};
+
+function pintarCartera() {
+  document.getElementById('corte').textContent = `corte ${DATOS.empresa.fechaCorte || ''}`;
+  for (const c of DATOS.clientes) {
+    const top = c.especiales[0];
+    const fila = document.createElement('button');
+    fila.className = 'fila';
+    fila.type = 'button';
+    fila.dataset.seg = c.segmento || '';
+    fila.innerHTML =
+      `<span class="seg">${escapar(c.segmento || '·')}</span>` +
+      `<span><span class="nombre">${escapar(c.nombre)}</span><br>` +
+      `<span class="situacion">${top ? `<i class="severidad sev-${top.nivel}"></i>` : ''}` +
+      `${escapar(top ? SITUACION[top.id] || 'Revisar' : 'Sin alertas')} · ${escapar(c.canal || '')}</span></span>` +
+      `<span class="plata">${escapar(plata(c.facturacion12m))}</span>`;
+    fila.addEventListener('click', () => elegirCliente(c));
+    cartera.appendChild(fila);
+  }
+}
+
+// --- Visita ------------------------------------------------------------------
+
+function abrirVisita(cliente) {
+  estado.visita = { cliente, respuestas: {}, competencia: [] };
+  globo(cliente.fichaTexto, 'el');
+  globo(cliente.avisoTexto, 'el');
+}
+
+function elegirCliente(cliente) {
+  if (ocupado) return;
+  if (estado.visita) {
+    globo(`Ya tenés una visita abierta en *${estado.visita.cliente.nombre}*. Contame cómo te fue y la cierro.`, 'el');
+    return;
+  }
+  globo(`Voy a visitar a ${cliente.nombre}`, 'yo');
+  abrirVisita(cliente);
+  globo('Andá tranquilo. Cuando salgas contame cómo te fue — si querés, tocá el micrófono y contámelo hablando.', 'el');
+  estado.turnos.push({ role: 'user', content: `Voy a visitar a ${cliente.nombre}` });
+  estado.turnos.push({ role: 'assistant', content: `Abrí la visita en ${cliente.nombre} y ya le mandé la ficha y las preguntas especiales.` });
+  entrada.placeholder = 'Contá cómo te fue…';
+  entrada.focus();
+}
+
+// Un punto puede depender de otro: si no hay competencia, los cuatro que
+// dependen de eso dejan de aplicar.
+function puntoAplica(punto) {
+  const cond = punto.omitirSi;
+  if (!cond) return true;
+  const dada = estado.visita?.respuestas[cond.pregunta];
+  if (dada === undefined || dada === null) return true;
+  return !new RegExp(cond.valorCoincide, 'i').test(String(dada).trim());
+}
+
+function puntosPendientes() {
+  if (!estado.visita) return [];
+  return estado.visita.cliente.puntos.filter(
+    (p) => p.obligatoria && !(p.id in estado.visita.respuestas) && puntoAplica(p)
+  );
+}
+
+function resumirPunto(p) {
+  return {
+    pregunta_id: p.id, que_hay_que_saber: p.texto, obligatoria: p.obligatoria, origen: p.origen,
+    ...(p.contexto ? { por_que: p.contexto } : {}),
+    ...(p.opciones ? { opciones_validas: p.opciones } : {}),
+  };
+}
+
+function cerrarYResumir() {
+  const { cliente, respuestas, competencia } = estado.visita;
+  const L = ['📝 *Esto es lo que quedó cargado*', ''];
+  for (const p of cliente.puntos) {
+    if (!(p.id in respuestas)) continue;
+    L.push(`${p.origen === 'especial' ? '❗' : '•'} ${p.texto.length > 58 ? `${p.texto.slice(0, 57)}…` : p.texto}`);
+    L.push(`   → ${respuestas[p.id]}`);
+  }
+  if (competencia.length) {
+    L.push('', '*Competencia relevada:*');
+    for (const c of competencia) {
+      const partes = [`${c.competidor} en ${c.familia}`];
+      if (c.participacion) partes.push(c.participacion.toLowerCase());
+      if (c.precio_relativo && c.precio_relativo !== 'No lo sabe') partes.push(c.precio_relativo.toLowerCase());
+      if (c.motivo) partes.push(`por ${c.motivo.toLowerCase()}`);
+      L.push(`• ${partes.join(' · ')}`);
+    }
+  }
+  L.push('', '_En el sistema real esto queda guardado y vuelve en la ficha de la próxima visita._');
+  globo(L.join('\n'), 'el');
+  estado.visita = null;
+  estado.guiado = null;
+  entrada.placeholder = 'Escribí un mensaje';
+}
+
+// --- Modo guiado (sin clave) -------------------------------------------------
+// Recorre los puntos del relevamiento uno por uno, salteando los que no aplican.
+// Es el mismo flujo determinista que trae el sistema cuando no hay API.
+
+function arrancarGuiado() {
+  estado.guiado = { indice: -1 };
+  globo(`Listo, vamos con el relevamiento de *${estado.visita.cliente.nombre}*. Te hago las preguntas una por una.`, 'el');
+  siguienteGuiado();
+}
+
+function siguienteGuiado() {
+  const puntos = estado.visita.cliente.puntos;
+  let i = estado.guiado.indice + 1;
+  while (i < puntos.length && (!puntoAplica(puntos[i]) || puntos[i].id in estado.visita.respuestas)) i++;
+
+  if (i >= puntos.length) {
+    const faltan = puntosPendientes();
+    if (faltan.length) { estado.guiado.indice = -1; return siguienteGuiado(); }
+    cerrarYResumir();
+    return;
+  }
+
+  estado.guiado.indice = i;
+  const p = puntos[i];
+  // El contador va sobre los puntos que aplican, no sobre la lista completa: si
+  // el vendedor dice que no hay competencia, el total baja y no queda un
+  // "4/16" que nunca llega a 16.
+  const aplican = puntos.filter((x) => puntoAplica(x));
+  const posicion = aplican.indexOf(p) + 1;
+  const L = [`*${posicion}/${aplican.length}* · ${p.texto}`];
+  if (p.contexto) L.push('', `_${p.contexto}_`);
+  if (!p.obligatoria) L.push('', '_Podés escribir SALTAR para omitirla._');
+  globo(L.join('\n'), 'el');
+  if (p.opciones?.length) botonera(p.opciones);
+}
+
+function responderGuiado(texto) {
+  const p = estado.visita.cliente.puntos[estado.guiado.indice];
+  const dicho = String(texto).trim();
+
+  if (/^(saltar|omitir|paso)$/i.test(dicho)) {
+    if (p.obligatoria) {
+      globo(p.origen === 'especial'
+        ? '⚠️ Esta no la puedo saltear: es la que pidió la oficina para este cliente. Si no pudiste averiguarlo, escribí por qué.'
+        : '⚠️ Esta pregunta es obligatoria. Si no la pudiste ver, escribí por qué.', 'el');
+      return;
+    }
+    estado.visita.respuestas[p.id] = '(omitida)';
+    return siguienteGuiado();
+  }
+
+  if (p.opciones?.length) {
+    const elegida = p.opciones.find((o) => o.toLowerCase() === dicho.toLowerCase())
+      || (Number.isInteger(Number(dicho)) ? p.opciones[Number(dicho) - 1] : null)
+      || (dicho.length >= 3 ? p.opciones.find((o) => o.toLowerCase().includes(dicho.toLowerCase())) : null);
+    if (!elegida) { globo('⚠️ Elegí una de las opciones de arriba.', 'el'); return; }
+    estado.visita.respuestas[p.id] = elegida;
+    return siguienteGuiado();
+  }
+
+  if (dicho.length < 2) { globo('⚠️ Contame un poco más, con una palabra no alcanza.', 'el'); return; }
+  estado.visita.respuestas[p.id] = dicho;
+  siguienteGuiado();
+}
+
+// --- Herramientas del agente -------------------------------------------------
+
+const HERRAMIENTAS = [
+  {
+    name: 'buscar_cliente',
+    description: 'Busca un cliente de FACBSA por nombre o código, aunque el vendedor lo diga informal.',
+    input_schema: { type: 'object', properties: { texto: { type: 'string' } }, required: ['texto'], additionalProperties: false },
+    strict: true,
+    ejecutar({ texto }) {
+      const palabras = sinAcentos(texto).split(/\s+/).filter((p) => p.length >= 3);
+      if (!palabras.length) return { encontrados: 0 };
+      const hallados = DATOS.clientes.filter((c) =>
+        palabras.every((p) => sinAcentos(c.nombre).includes(p) || (c.codigo || '').toUpperCase() === p));
+      if (!hallados.length) {
+        return { encontrados: 0, nota: 'No coincide con ninguno. En esta demostración sólo existen los de la cartera de prueba.' };
+      }
+      return {
+        encontrados: hallados.length,
+        clientes: hallados.map((c) => ({
+          cliente_id: c.id, nombre: c.nombre, codigo: c.codigo, canal: c.canal,
+          segmento: c.segmento, facturacion_12m: plata(c.facturacion12m),
+        })),
+        nota: hallados.length === 1 ? 'Hay uno solo: abrí la visita directamente.' : 'Hay varios: preguntale cuál es, con una botonera.',
+      };
+    },
+  },
+  {
+    name: 'abrir_visita',
+    description: 'Abre la visita y le manda al vendedor la ficha y las preguntas especiales. El sistema envía esos mensajes solo: no repitas los números.',
+    input_schema: { type: 'object', properties: { cliente_id: { type: 'integer' } }, required: ['cliente_id'], additionalProperties: false },
+    strict: true,
+    ejecutar({ cliente_id }) {
+      if (estado.visita) return { error: `Ya hay una visita abierta en ${estado.visita.cliente.nombre}.` };
+      const cliente = DATOS.clientes.find((c) => c.id === Number(cliente_id));
+      if (!cliente) return { error: 'No existe ese cliente.' };
+      abrirVisita(cliente);
+      return {
+        cliente: cliente.nombre, ficha_enviada: true,
+        puntos_del_relevamiento: cliente.puntos.map(resumirPunto),
+        nota: 'La ficha ya se le mandó. Decile en una línea que vaya tranquilo y que después te cuente.',
+      };
+    },
+  },
+  {
+    name: 'registrar_respuestas',
+    description: 'Guarda lo que el vendedor contó, aunque sea parcial. Registrá sólo lo que dijo de verdad. Devuelve qué falta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        respuestas: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { pregunta_id: { type: 'string' }, respuesta: { type: 'string' } },
+            required: ['pregunta_id', 'respuesta'], additionalProperties: false,
+          },
+        },
+      },
+      required: ['respuestas'], additionalProperties: false,
+    },
+    strict: true,
+    ejecutar({ respuestas }) {
+      if (!estado.visita) return { error: 'No hay ninguna visita abierta todavía.' };
+      const porId = new Map(estado.visita.cliente.puntos.map((p) => [p.id, p]));
+      const guardadas = [], rechazadas = [];
+      for (const item of respuestas || []) {
+        const punto = porId.get(String(item.pregunta_id));
+        if (!punto) { rechazadas.push({ pregunta_id: item.pregunta_id, motivo: 'no existe ese punto' }); continue; }
+        const dicho = String(item.respuesta ?? '').trim();
+        if (punto.opciones) {
+          const valida = punto.opciones.find((op) => op.toLowerCase() === dicho.toLowerCase());
+          if (!valida) { rechazadas.push({ pregunta_id: punto.id, motivo: `tiene que ser exactamente una de: ${punto.opciones.join(' | ')}` }); continue; }
+          estado.visita.respuestas[punto.id] = valida;
+        } else {
+          if (dicho.length < 2) { rechazadas.push({ pregunta_id: punto.id, motivo: 'muy corto' }); continue; }
+          estado.visita.respuestas[punto.id] = dicho;
+        }
+        guardadas.push(punto.id);
+      }
+      const pendientes = puntosPendientes();
+      return {
+        guardadas, ...(rechazadas.length ? { rechazadas } : {}),
+        pendientes: pendientes.map(resumirPunto),
+        nota: pendientes.length
+          ? 'Pedile lo que falta, de a una cosa por vez. Si el punto tiene opciones_validas, ofrecelas con responder_con_opciones.'
+          : 'Ya está todo lo obligatorio: confirmá y cerrá la visita.',
+      };
+    },
+  },
+  {
+    name: 'registrar_competencia',
+    description: 'Guarda quién nos compite, en qué familia, qué parte del consumo se lleva, a qué precio y por qué. Llamala apenas el vendedor menciona a otro proveedor.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        competidores: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              competidor: { type: 'string' },
+              familia: { type: 'string', description: 'JABALINAS LISAS, TOMACABLES, CABLE IRAM 2467, PARARRAYOS, SOLDADURA EXOTERMICA, CONECTORES A COMPRESION o VARIOS (CONJUNTOS).' },
+              participacion: { type: ['string', 'null'] },
+              precio_relativo: { type: ['string', 'null'] },
+              motivo: { type: ['string', 'null'] },
+              volumen: { type: ['string', 'null'] },
+            },
+            required: ['competidor', 'familia', 'participacion', 'precio_relativo', 'motivo', 'volumen'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['competidores'], additionalProperties: false,
+    },
+    strict: true,
+    ejecutar({ competidores }) {
+      if (!estado.visita) return { error: 'No hay ninguna visita abierta todavía.' };
+      const enEscala = (escala, v) => escala.find((x) => x.toLowerCase() === String(v ?? '').trim().toLowerCase()) || null;
+      const guardados = [], rechazados = [];
+      for (const c of competidores || []) {
+        const competidor = String(c.competidor ?? '').trim().toUpperCase();
+        const familia = String(c.familia ?? '').trim().toUpperCase();
+        if (!competidor || !familia) { rechazados.push({ competidor: c.competidor, motivo: 'falta el competidor o la familia' }); continue; }
+        if (c.participacion && !enEscala(PARTICIPACION, c.participacion)) {
+          rechazados.push({ competidor, motivo: `participacion tiene que ser una de: ${PARTICIPACION.join(' | ')}` }); continue;
+        }
+        if (c.motivo && !enEscala(MOTIVOS, c.motivo)) {
+          rechazados.push({ competidor, motivo: `motivo tiene que ser uno de: ${MOTIVOS.join(' | ')}` }); continue;
+        }
+        const fila = {
+          competidor, familia,
+          participacion: enEscala(PARTICIPACION, c.participacion),
+          precio_relativo: enEscala(PRECIO_COMP, c.precio_relativo),
+          motivo: enEscala(MOTIVOS, c.motivo),
+          volumen: c.volumen || null,
+        };
+        const previo = estado.visita.competencia.findIndex((x) => x.competidor === competidor && x.familia === familia);
+        if (previo >= 0) estado.visita.competencia[previo] = fila; else estado.visita.competencia.push(fila);
+        guardados.push(`${competidor} / ${familia}`);
+      }
+      const incompletos = estado.visita.competencia.map((r) => {
+        const falta = [];
+        if (!r.participacion) falta.push('qué parte del consumo se lleva');
+        if (!r.precio_relativo) falta.push('cómo está su precio contra el nuestro');
+        if (!r.motivo) falta.push('por qué le compran a él');
+        return falta.length ? { competidor: r.competidor, familia: r.familia, falta } : null;
+      }).filter(Boolean);
+      return {
+        guardados, ...(rechazados.length ? { rechazados } : {}), ...(incompletos.length ? { incompletos } : {}),
+        nota: incompletos.length ? 'Completá lo que falta preguntándoselo, de a una cosa por vez y con botonera.' : 'Quedó completo el cuadro de competencia.',
+      };
+    },
+  },
+  {
+    name: 'cerrar_visita',
+    description: 'Cierra el relevamiento. Sólo cuando no quedan puntos obligatorios pendientes.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    strict: true,
+    ejecutar() {
+      if (!estado.visita) return { error: 'No hay ninguna visita abierta.' };
+      const pendientes = puntosPendientes();
+      if (pendientes.length) return { error: 'Faltan puntos obligatorios, no la puedo cerrar.', pendientes: pendientes.map(resumirPunto) };
+      const cliente = estado.visita.cliente.nombre;
+      cerrarYResumir();
+      return { cerrada: true, cliente, nota: 'Ya se le mandó el resumen. Agradecele en una línea.' };
+    },
+  },
+  {
+    name: 'cancelar_visita',
+    description: 'Anula la visita en curso, por ejemplo si el vendedor se equivocó de cliente.',
+    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },
+    strict: true,
+    ejecutar() {
+      if (!estado.visita) return { error: 'No hay ninguna visita abierta.' };
+      estado.visita = null;
+      entrada.placeholder = 'Escribí un mensaje';
+      return { cancelada: true };
+    },
+  },
+  {
+    name: 'responder_con_opciones',
+    description: 'Hace que tu próximo mensaje lleve botones para que el vendedor elija tocando. Usala siempre que la respuesta sea una opción cerrada. Entre 2 y 10 opciones, de 20 caracteres o menos. Después escribí tu mensaje normalmente.',
+    input_schema: {
+      type: 'object',
+      properties: { opciones: { type: 'array', items: { type: 'string' } } },
+      required: ['opciones'], additionalProperties: false,
+    },
+    strict: true,
+    ejecutar({ opciones }) {
+      opcionesPendientes = (opciones || []).slice(0, 10).map((o) => String(o).slice(0, 20));
+      return { listo: true, nota: 'Ahora escribí el mensaje que acompaña a los botones.' };
+    },
+  },
+];
+
+// --- Instrucciones del agente ------------------------------------------------
+
+const REGLAS = `Sos el asistente de relevamiento de visitas de FACBSA y hablás por WhatsApp con los vendedores que salen a la calle.
+
+FACBSA fabrica conductores bimetálicos para instalaciones de puesta a tierra; es líder del mercado argentino en productos normalizados IRAM. Sus familias son cable IRAM 2467, jabalinas lisas, tomacables, pararrayos, soldadura exotérmica y conjuntos armados.
+
+## Para qué existís
+Antes de entrar al cliente el vendedor te dice a quién va a visitar y vos le pasás la situación de esa cuenta y qué averiguar adentro. Cuando sale, te cuenta cómo le fue —muchas veces hablando— y vos registrás el relevamiento y le repreguntás sólo lo que falte.
+
+## Cómo hablás
+Sos un compañero de trabajo, no un formulario. Español rioplatense, de vos, breve y directo, como se escribe por WhatsApp: dos o tres líneas, sin viñetas ni títulos. Nada de "estimado" ni jerga de sistema; no hables de campos, formularios ni registros. Nunca le pidas comandos.
+
+## Cómo trabajás
+1. Si menciona un cliente, buscalo con buscar_cliente aunque lo diga informal. Si hay uno solo, abrí la visita sin preguntar de más; si hay varios, ofrecé la botonera.
+2. Al abrir la visita el sistema le manda la ficha y las preguntas especiales. Ya las vio: no repitas los números ni la lista. Decile en una línea que vaya tranquilo.
+3. Cuando vuelve, escuchá todo y registrá con registrar_respuestas cada cosa que hayas entendido, aunque sea parcial. Podés llamarla varias veces.
+4. Apenas nombra a otro proveedor —aunque sea al pasar— registralo con registrar_competencia. Una entrada por competidor y por familia de producto.
+5. Fijate qué quedó pendiente y pedilo, de a una cosa por vez, sin repetir lo que ya te contó. Si el punto tiene opciones_validas, usá responder_con_opciones.
+6. Cuando está todo, cerrá con cerrar_visita.
+
+## La competencia es lo que más nos falta saber
+De cada competidor que aparezca necesitamos cuatro cosas: en qué producto nos compite, qué parte del consumo se lleva, cómo está su precio contra el nuestro y por qué le compran a él. Si el vendedor sólo nombró la marca, pedile el resto.
+
+## Reglas que no se negocian
+- Registrá sólo lo que el vendedor dijo. Si no lo dijo, está pendiente: nunca completes un punto con lo que te parece probable.
+- Los números de facturación, ranking, gaps y segmento salen de la base y ya se los mandó el sistema. No los repitas de memoria ni los estimes.
+- El gap de tomacables es una estimación comercial (1 tomacable cada 2 jabalinas), no una demanda comprobada.
+- Las preguntas especiales son las que pidió la oficina para ese cliente: no las dejes pasar. Si no las pudo averiguar, registrá eso mismo como respuesta.
+- Si lo que dictó vino cortado o no se entendió, decilo y pedile que repita esa parte.
+
+## Formato de tu respuesta
+Usá las herramientas primero y recién después escribí. Tu respuesta final es el único mensaje que ve el vendedor: no narres lo que estás haciendo entre herramienta y herramienta.`;
+
+function estadoTexto() {
+  const partes = [`Vendedor: ${selVendedor.value || 'el vendedor'}.`];
+  if (!estado.visita) {
+    partes.push('No hay ninguna visita abierta. Si menciona un cliente, buscalo y abrí la visita.');
+    return partes.join(' ');
+  }
+  partes.push(`Visita abierta en ${estado.visita.cliente.nombre}.`);
+  const puestas = Object.entries(estado.visita.respuestas);
+  partes.push(puestas.length ? `Ya registrado: ${puestas.map(([k, v]) => `${k}="${v}"`).join('; ')}.` : 'Todavía no registraste nada.');
+  if (estado.visita.competencia.length) {
+    partes.push(`Competencia registrada: ${estado.visita.competencia.map((c) => `${c.competidor} en ${c.familia}`).join('; ')}.`);
+  }
+  const faltan = puntosPendientes();
+  if (faltan.length) partes.push(`Pendientes: ${faltan.map((p) => p.id).join(', ')}.`);
+  return partes.join(' ');
+}
+
+// --- Conexión con la API -----------------------------------------------------
+
+// El SDK oficial se carga desde el CDN sólo cuando el usuario activa una clave.
+// Sin clave, el archivo no pide nada a la red.
+async function crearAgente(clave) {
+  const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.124.0/+esm');
+  // La clave es del propio usuario y queda en su navegador; la API acepta la
+  // llamada directa desde el navegador con la cabecera que agrega esta opción.
+  const cliente = new Anthropic({ apiKey: clave, dangerouslyAllowBrowser: true });
+
+  return async function conversar(mensajes) {
+    return cliente.messages.create({
+      model: MODELO,
+      max_tokens: 8000,
+      system: [{ type: 'text', text: REGLAS, cache_control: { type: 'ephemeral' } }],
+      tools: HERRAMIENTAS.map(({ name, description, input_schema, strict }) => ({ name, description, input_schema, strict })),
+      tool_choice: { type: 'auto' },
+      output_config: { effort: 'low' },
+      messages: mensajes,
+    });
+  };
+}
+
+const MAX_VUELTAS = 6;
+
+async function conversarConAgente(texto, esDictado) {
+  estado.turnos.push({
+    role: 'user',
+    content: esDictado ? `[el vendedor lo contó hablando, esto es la transcripción]\n${texto}` : texto,
+  });
+
+  const mensajes = estado.turnos.slice(-16).map((t) => ({ role: t.role, content: t.content }));
+
+  for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
+    const conEstado = [...mensajes, { role: 'system', content: estadoTexto() }];
+    const respuesta = await agente(conEstado);
+
+    if (respuesta.stop_reason === 'refusal') {
+      globo('Eso no lo puedo procesar. Contame la visita y seguimos.', 'el');
+      return;
+    }
+
+    const dicho = respuesta.content.filter((b) => b.type === 'text').map((b) => b.text.trim()).filter(Boolean).join('\n\n');
+    const llamadas = respuesta.content.filter((b) => b.type === 'tool_use');
+
+    mensajes.push({ role: 'assistant', content: respuesta.content });
+    estado.turnos.push({ role: 'assistant', content: respuesta.content });
+
+    if (!llamadas.length) {
+      pensando(false);
+      if (dicho) globo(dicho, 'el');
+      if (opcionesPendientes?.length) { botonera(opcionesPendientes); opcionesPendientes = null; }
+      return;
+    }
+
+    const resultados = [];
+    for (const llamada of llamadas) {
+      const herramienta = HERRAMIENTAS.find((h) => h.name === llamada.name);
+      let salida;
+      try {
+        salida = herramienta ? herramienta.ejecutar(llamada.input || {}) : { error: 'herramienta desconocida' };
+      } catch (e) {
+        salida = { error: String(e.message || e) };
+      }
+      resultados.push({ type: 'tool_result', tool_use_id: llamada.id, content: JSON.stringify(salida) });
+    }
+    mensajes.push({ role: 'user', content: resultados });
+    estado.turnos.push({ role: 'user', content: resultados });
+  }
+
+  pensando(false);
+  globo('Se me hizo largo esto. ¿Me lo contás de nuevo, más corto?', 'el');
+}
+
+function copyDeError(e) {
+  if (e?.status === 401) { agente = null; marcarModo(); return 'La clave no es válida. Revisala en Ajustes.'; }
+  if (e?.status === 429) return 'La API está limitando las consultas. Esperá unos segundos y probá de nuevo.';
+  if (e?.status === 400) return `La API rechazó el pedido: ${e.message || ''}`.trim();
+  if (String(e?.message || '').match(/fetch|network|Failed/i)) {
+    return 'No pude contactar la API. Si abriste el archivo con doble clic, probá sirviéndolo desde localhost (está explicado a la izquierda).';
+  }
+  return 'Se me complicó procesando eso. ¿Me lo repetís?';
+}
+
+// --- Entrada del vendedor ----------------------------------------------------
+
+async function recibir(texto, opciones = {}) {
+  if (ocupado) return;
+  const limpio = String(texto || '').trim();
+  if (!limpio) return;
+
+  if (opciones.dictado) globoVoz(opciones.segundos || 1); else globo(limpio, 'yo');
+  entrada.value = '';
+
+  // Sin agente: flujo guiado, determinista.
+  if (!agente) {
+    if (!estado.visita) {
+      globo('Elegí un cliente de la lista para arrancar la visita. En modo guiado no busco por nombre — para eso hace falta activar la conversación en Ajustes.', 'el');
+      return;
+    }
+    if (!estado.guiado) {
+      if (/^(fin|listo|termine|terminé|sali|salí|ya está|ya esta)$/i.test(limpio)) return arrancarGuiado();
+      globo('Cuando salgas del cliente escribí *FIN* y te tomo el relevamiento.', 'el');
+      return;
+    }
+    return responderGuiado(limpio);
+  }
+
+  bloquear(true);
+  pensando(true);
+  opcionesPendientes = null;
+  try {
+    await conversarConAgente(limpio, Boolean(opciones.dictado));
+  } catch (e) {
+    pensando(false);
+    globo(copyDeError(e), 'el');
+  } finally {
+    bloquear(false);
+    entrada.focus();
+  }
+}
+
+form.addEventListener('submit', (e) => { e.preventDefault(); recibir(entrada.value); });
+
+// --- Dictado -----------------------------------------------------------------
+
+let reconocimiento = null;
+let escuchando = false;
+let arranque = 0;
+let dictado = '';
+
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (Reconocedor) {
+  reconocimiento = new Reconocedor();
+  reconocimiento.lang = 'es-AR';
+  reconocimiento.continuous = true;
+  reconocimiento.interimResults = true;
+  reconocimiento.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) dictado += `${ev.results[i][0].transcript} `;
+    }
+  };
+  reconocimiento.onerror = (ev) => {
+    detenerEscucha();
+    pie.textContent = ev.error === 'not-allowed'
+      ? 'El navegador no dio permiso de micrófono. Abierto como archivo suelto suele bloquearlo: mirá la nota de la izquierda.'
+      : 'No pude escuchar bien. Probá de nuevo o escribilo.';
+  };
+  reconocimiento.onend = () => {
+    if (!escuchando) return;
+    detenerEscucha();
+    const segundos = Math.max(1, Math.round((Date.now() - arranque) / 1000));
+    const dicho = dictado.trim();
+    if (dicho) recibir(dicho, { dictado: true, segundos });
+    else pie.textContent = 'No se entendió nada. Probá de nuevo, más cerca del micrófono.';
+  };
+}
+
+function detenerEscucha() {
+  escuchando = false;
+  btnHablar.classList.remove('grabando');
+  btnHablar.textContent = '🎤';
+}
+
+btnHablar.addEventListener('click', () => {
+  if (!reconocimiento || ocupado) return;
+  if (escuchando) { escuchando = false; reconocimiento.stop(); return; }
+  dictado = '';
+  arranque = Date.now();
+  escuchando = true;
+  btnHablar.classList.add('grabando');
+  btnHablar.textContent = '⏹';
+  pie.textContent = 'Contá la visita… tocá otra vez para enviar.';
+  try { reconocimiento.start(); } catch { detenerEscucha(); }
+});
+
+// --- Ajustes y arranque ------------------------------------------------------
+
+function chip(texto, activo) {
+  const s = document.createElement('span');
+  s.className = `chip ${activo ? 'si' : 'no'}`;
+  s.textContent = texto;
+  return s;
+}
+
+let chipModo = null;
+function marcarModo() {
+  const activo = Boolean(agente);
+  estadoModo.textContent = activo ? 'agente conversacional' : 'modo guiado';
+  if (chipModo) {
+    chipModo.textContent = activo ? 'conversación activa' : 'modo guiado';
+    chipModo.className = `chip ${activo ? 'si' : 'no'}`;
+  }
+}
+
+async function activarClave(clave, silencioso = false) {
+  if (!clave) return;
+  avisoClave.textContent = 'Cargando…';
+  try {
+    agente = await crearAgente(clave);
+    try { localStorage.setItem(CLAVE_GUARDADA, clave); } catch { /* modo privado */ }
+    avisoClave.textContent = 'Conversación activada. Contale la visita como quieras.';
+    marcarModo();
+    if (!silencioso) globo('Listo, ya podés hablarme normal: decime a qué cliente vas o contame cómo te fue.', 'el');
+  } catch (e) {
+    agente = null;
+    marcarModo();
+    avisoClave.textContent = String(e?.message || '').match(/fetch|import|network/i)
+      ? 'No pude cargar la librería. Necesitás conexión la primera vez, y abrirlo desde localhost si lo tenés como archivo suelto.'
+      : `No pude activar la clave: ${e?.message || e}`;
+  }
+}
+
+btnClave.addEventListener('click', () => activarClave(inputClave.value.trim()));
+inputClave.addEventListener('keydown', (e) => { if (e.key === 'Enter') activarClave(inputClave.value.trim()); });
+
+function arrancar() {
+  pintarCartera();
+  selVendedor.innerHTML = DATOS.vendedores.map((v) => `<option>${escapar(v.nombre)}</option>`).join('');
+
+  estados.appendChild(chip(reconocimiento ? 'micrófono listo' : 'dictado: sólo Chrome o Edge', Boolean(reconocimiento)));
+  chipModo = chip('modo guiado', false);
+  estados.appendChild(chipModo);
+  btnHablar.disabled = !reconocimiento;
+  marcarModo();
+
+  globo(`Hola ${DATOS.vendedores[0]?.nombre.split(' ')[0] || ''} 👋\n\nDecime a qué cliente vas a visitar y te paso su situación. Tocalo en la lista de clientes para arrancar.`, 'el');
+
+  let guardada = null;
+  try { guardada = localStorage.getItem(CLAVE_GUARDADA); } catch { /* modo privado */ }
+  if (guardada) { inputClave.value = guardada; activarClave(guardada, true); }
+}
+
+arrancar();
+</script>

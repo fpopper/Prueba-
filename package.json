@@ -12,7 +12,8 @@
     "demo": "node --no-warnings scripts/cargar-demo.js",
     "exportar": "node --no-warnings scripts/exportar-relevamientos.js",
     "test": "node --no-warnings --test test/*.test.js",
-    "competencia": "node --no-warnings scripts/competencia.js"
+    "competencia": "node --no-warnings scripts/competencia.js",
+    "demo:offline": "node --no-warnings scripts/generar-demo-offline.js"
   },
   "license": "UNLICENSED",
   "private": true,

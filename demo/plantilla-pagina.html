@@ -1,0 +1,281 @@
+<title>Asistente de visitas FACBSA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root{
+  /* Cobre: el conductor que fabrica FACBSA. Neutros con sesgo verde-gris frio,
+     para que el cobre no compita con un gris caliente. */
+  --cobre:#b4611f; --cobre-suave:#f0e2d6;
+  --fondo:#edf0f1; --papel:#ffffff; --hueco:#e2e7e7;
+  --tinta:#182220; --tenue:#5c6b69; --linea:#d2dad9;
+  --critico:#b03428; --alerta:#a8720f; --oportunidad:#0f7355; --dato:#2b5f7a;
+  /* Chrome de WhatsApp: se mantiene fiel para que el vendedor lo reconozca */
+  --wa-panel:#111b21; --wa-fondo:#0b141a; --wa-barra:#202c33;
+  --wa-yo:#005c4b; --wa-el:#202c33; --wa-texto:#e9edef; --wa-tenue:#8696a0;
+  --wa-verde:#00a884; --wa-link:#53bdeb;
+  --display:"Archivo",system-ui,sans-serif;
+  --cuerpo:"Source Sans 3",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --cobre:#e0902f; --cobre-suave:#3a2a17;
+    --fondo:#101615; --papel:#17201f; --hueco:#1d2726;
+    --tinta:#e6edeb; --tenue:#93a5a2; --linea:#28322f;
+    --critico:#e0685c; --alerta:#d3a03c; --oportunidad:#3fb391; --dato:#6aa7c4;
+  }
+}
+:root[data-theme="dark"]{
+  --cobre:#e0902f; --cobre-suave:#3a2a17;
+  --fondo:#101615; --papel:#17201f; --hueco:#1d2726;
+  --tinta:#e6edeb; --tenue:#93a5a2; --linea:#28322f;
+  --critico:#e0685c; --alerta:#d3a03c; --oportunidad:#3fb391; --dato:#6aa7c4;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--fondo);color:var(--tinta);font-family:var(--cuerpo);
+     font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+a{color:var(--cobre)}
+:focus-visible{outline:2px solid var(--cobre);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.hoja{max-width:1240px;margin:0 auto;padding:clamp(1.1rem,3vw,2.4rem)}
+
+/* --- Encabezado ---------------------------------------------------------- */
+.encabezado{border-bottom:2px solid var(--tinta);padding-bottom:.9rem;margin-bottom:1.6rem}
+.marca{font-family:var(--mono);font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+       color:var(--cobre);font-weight:600}
+.encabezado h1{font-size:clamp(1.7rem,4.2vw,2.6rem);font-weight:800;letter-spacing:-.025em;
+               line-height:1.05;margin:.25rem 0 .4rem}
+.bajada{color:var(--tenue);max-width:62ch;font-size:.98rem}
+
+/* --- Rejilla principal --------------------------------------------------- */
+.rejilla{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:clamp(1.2rem,3vw,2.6rem);
+         align-items:start}
+@media (max-width:940px){.rejilla{grid-template-columns:1fr}
+  .columna-telefono{order:-1}}
+
+/* --- Bloques de la hoja de especificacion -------------------------------- */
+.bloque{margin-bottom:1.9rem}
+.rotulo{font-family:var(--mono);font-size:.68rem;letter-spacing:.15em;text-transform:uppercase;
+        color:var(--tenue);font-weight:600;display:flex;align-items:baseline;gap:.6rem;
+        border-bottom:1px solid var(--linea);padding-bottom:.35rem;margin-bottom:.75rem}
+.rotulo::after{content:"";flex:1}
+.bloque p{margin:.5rem 0;font-size:.92rem;color:var(--tenue);max-width:64ch}
+.bloque p strong{color:var(--tinta);font-weight:600}
+
+/* Pasos: la secuencia es real, por eso van numerados */
+.pasos{list-style:none;margin:0;padding:0;counter-reset:paso;display:grid;gap:.55rem}
+.pasos li{counter-increment:paso;display:grid;grid-template-columns:1.6rem 1fr;gap:.7rem;
+          font-size:.92rem;align-items:baseline}
+.pasos li::before{content:counter(paso);font-family:var(--mono);font-size:.72rem;font-weight:600;
+                  color:var(--cobre)}
+
+/* Cartera: cada fila lleva su situacion, que es lo que la hace interesante */
+.cartera{display:grid;gap:1px;background:var(--linea);border:1px solid var(--linea)}
+.fila{display:grid;grid-template-columns:2rem 1fr auto;gap:.7rem;align-items:center;
+      background:var(--papel);border:0;text-align:left;padding:.6rem .75rem;cursor:pointer;
+      font:inherit;color:inherit;width:100%;transition:background .12s}
+.fila:hover{background:var(--hueco)}
+.fila .seg{font-family:var(--mono);font-size:.78rem;font-weight:600;width:1.5rem;height:1.5rem;
+           display:grid;place-items:center;border-radius:2px;background:var(--hueco);color:var(--tenue)}
+.fila[data-seg="A"] .seg{background:var(--cobre);color:#fff}
+.fila[data-seg="B"] .seg{background:var(--cobre-suave);color:var(--cobre)}
+.fila .nombre{font-weight:600;font-size:.88rem;line-height:1.25}
+.fila .situacion{font-size:.78rem;color:var(--tenue);line-height:1.3}
+.fila .plata{font-family:var(--mono);font-size:.78rem;color:var(--tenue);
+             font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.severidad{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.35rem;
+           vertical-align:middle}
+.sev-CRITICO{background:var(--critico)}
+.sev-ALERTA{background:var(--alerta)}
+.sev-OPORTUNIDAD{background:var(--oportunidad)}
+.sev-INFO{background:var(--dato)}
+
+/* Estado de las capacidades */
+.estados{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 .9rem}
+.chip{font-family:var(--mono);font-size:.68rem;letter-spacing:.04em;padding:.16rem .5rem;
+      border:1px solid var(--linea);border-radius:99px;color:var(--tenue);white-space:nowrap}
+.chip.si{color:var(--oportunidad);border-color:currentColor}
+.chip.no{color:var(--tenue);opacity:.75}
+
+.campo{display:flex;gap:.4rem;margin:.6rem 0 .3rem}
+.campo input{flex:1;min-width:0;font:inherit;font-size:.85rem;padding:.4rem .6rem;
+             border:1px solid var(--linea);border-radius:4px;background:var(--papel);color:var(--tinta)}
+.campo button{font:inherit;font-size:.82rem;font-weight:600;padding:.4rem .8rem;cursor:pointer;
+              border:0;border-radius:4px;background:var(--cobre);color:#fff}
+.campo button:hover{filter:brightness(1.08)}
+.chico{font-size:.8rem}
+.consola{font-family:var(--mono);font-size:.76rem;background:var(--hueco);padding:.6rem .7rem;
+         border-radius:4px;overflow-x:auto;margin:.5rem 0;line-height:1.6}
+.nota{border-left:2px solid var(--cobre);padding:.15rem 0 .15rem .8rem;margin:.9rem 0;
+      font-size:.88rem;color:var(--tenue)}
+.nota strong{color:var(--tinta)}
+code{font-family:var(--mono);font-size:.85em;background:var(--hueco);padding:.05rem .3rem;border-radius:3px}
+
+/* --- El telefono: el unico objeto elevado de la pagina ------------------- */
+.columna-telefono{position:sticky;top:1.5rem}
+@media (max-width:940px){.columna-telefono{position:static}}
+.telefono{background:var(--wa-panel);border-radius:16px;overflow:hidden;
+          display:flex;flex-direction:column;height:min(760px,82vh);
+          box-shadow:0 22px 50px -18px rgba(10,25,22,.55),0 2px 8px rgba(10,25,22,.18)}
+.barra{background:var(--wa-barra);padding:.65rem .85rem;display:flex;align-items:center;gap:.7rem}
+.foto{width:36px;height:36px;border-radius:50%;background:var(--wa-verde);color:#04231c;
+      display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:.8rem}
+.barra .quien{font-size:.88rem;font-weight:600;color:var(--wa-texto);line-height:1.2}
+.barra .sub{font-size:.7rem;color:var(--wa-tenue)}
+.barra select{margin-left:auto;background:var(--wa-panel);color:var(--wa-texto);
+              border:1px solid #2a3942;border-radius:6px;padding:.25rem;font:inherit;
+              font-size:.72rem;max-width:132px}
+
+.chat{flex:1;overflow-y:auto;padding:.9rem .7rem;display:flex;flex-direction:column;gap:.4rem;
+      background:var(--wa-fondo);
+      background-image:radial-gradient(rgba(255,255,255,.02) 1px,transparent 1px);
+      background-size:22px 22px;color:var(--wa-texto)}
+.globo{max-width:85%;padding:.45rem .6rem;border-radius:8px;font-size:.83rem;line-height:1.45;
+       white-space:pre-wrap;overflow-wrap:anywhere;animation:entra .16s ease-out}
+@keyframes entra{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.globo.el{background:var(--wa-el);align-self:flex-start;border-top-left-radius:2px}
+.globo.yo{background:var(--wa-yo);align-self:flex-end;border-top-right-radius:2px}
+.globo b{font-weight:600}
+.globo i{font-style:normal;color:#a8c0ca}
+.globo .sello{font-family:var(--mono);font-size:.6rem;color:rgba(233,237,239,.45);
+              float:right;margin:.4rem 0 -.15rem .5rem}
+.globo.voz{display:flex;align-items:center;gap:.5rem}
+.onda{flex:1;height:14px;border-radius:2px;
+      background:repeating-linear-gradient(90deg,rgba(255,255,255,.55) 0 2px,transparent 2px 5px);opacity:.55}
+
+.opciones{align-self:flex-start;max-width:85%;display:flex;flex-direction:column;gap:1px}
+.opciones .titulo-lista{font-family:var(--mono);font-size:.63rem;color:var(--wa-tenue);padding:.2rem}
+.opciones button{background:var(--wa-el);color:var(--wa-link);border:0;border-top:1px solid #2a3942;
+                 padding:.48rem;font:inherit;font-size:.81rem;cursor:pointer}
+.opciones button:first-of-type{border-top:0}
+.opciones button:last-child{border-radius:0 0 8px 8px}
+.opciones button:hover:not(:disabled){background:#2a3942}
+.opciones button:disabled{color:var(--wa-tenue);cursor:default}
+
+.escribiendo{align-self:flex-start;background:var(--wa-el);border-radius:8px;padding:.55rem .7rem;
+             display:flex;gap:.28rem}
+.escribiendo span{width:6px;height:6px;border-radius:50%;background:var(--wa-tenue);
+                  animation:puntito 1.2s infinite}
+.escribiendo span:nth-child(2){animation-delay:.16s}
+.escribiendo span:nth-child(3){animation-delay:.32s}
+@keyframes puntito{0%,60%,100%{opacity:.3}30%{opacity:1}}
+
+.redaccion{display:flex;gap:.45rem;padding:.55rem;background:var(--wa-panel);align-items:center}
+.redaccion input{flex:1;min-width:0;background:#2a3942;border:0;border-radius:20px;
+                 padding:.55rem .85rem;color:var(--wa-texto);font:inherit;font-size:.85rem;outline:none}
+.redaccion input::placeholder{color:var(--wa-tenue)}
+.redondo{border:0;width:38px;height:38px;border-radius:50%;cursor:pointer;flex:0 0 38px;
+         display:grid;place-items:center;font-size:1rem}
+.mandar{background:var(--wa-verde);color:#04231c}
+.hablar{background:#2a3942;color:var(--wa-texto)}
+.hablar.grabando{background:var(--critico);color:#fff;animation:pulso 1.1s infinite}
+@keyframes pulso{50%{opacity:.6}}
+.redondo:disabled{opacity:.4;cursor:default}
+.pie-telefono{font-size:.74rem;color:var(--tenue);padding:.5rem .2rem 0;min-height:1.4rem}
+
+footer{margin-top:2.4rem;padding-top:1rem;border-top:1px solid var(--linea);
+        font-size:.82rem;color:var(--tenue)}
+</style>
+
+<div class="hoja">
+  <header class="encabezado">
+    <div class="marca">FACBSA · Fuerza de ventas</div>
+    <h1>El vendedor le habla, el sistema anota</h1>
+    <p class="bajada">Antes de entrar al cliente dice a quién va a visitar y recibe la situación real
+      de esa cuenta. Cuando sale, cuenta cómo le fue —hablando— y el asistente registra lo que
+      entendió y le repregunta sólo lo que falta.</p>
+    <p class="bajada"><strong>Demostración con datos de ejemplo.</strong> Nada de lo que cargues acá
+      se guarda: al recargar la página arranca de cero.</p>
+  </header>
+
+  <div class="rejilla">
+    <div>
+      <section class="bloque">
+        <div class="rotulo">Cómo probarlo</div>
+        <ol class="pasos">
+          <li>Tocá un cliente de la cartera. Es lo mismo que si el vendedor escribiera su nombre.</li>
+          <li>Mirá la ficha y las preguntas que le pide averiguar adentro.</li>
+          <li>Contale cómo te fue: escribí, o tocá el micrófono y hablá como en una nota de voz.</li>
+          <li>Fijate qué registró solo y qué te repregunta.</li>
+        </ol>
+        <div class="estados" id="estados"></div>
+      </section>
+
+      <section class="bloque">
+        <div class="rotulo">Cartera de prueba <span id="corte"></span></div>
+        <p>Trece cuentas con los números reales que salen del sistema. Cada una está acá porque
+          dispara una situación distinta.</p>
+        <div class="cartera" id="cartera"></div>
+      </section>
+
+      <section class="bloque" id="bloqueAjustes">
+        <div class="rotulo">Ajustes <span id="estadoModo"></span></div>
+        <p>Sin clave funciona en <strong>modo guiado</strong>: te hace el relevamiento
+          pregunta por pregunta, con la misma botonera y las mismas reglas. No necesita
+          internet ni cuenta de ninguna clase.</p>
+        <p>Con una clave de la API de Claude se activa el <strong>agente conversacional</strong>:
+          le contás la visita como quieras y él registra y repregunta. La clave se guarda
+          sólo en este navegador y viaja únicamente a la API de Anthropic.</p>
+        <div class="campo">
+          <input type="password" id="clave" placeholder="sk-ant-…  (opcional)" autocomplete="off" spellcheck="false">
+          <button type="button" id="guardarClave">Activar</button>
+        </div>
+        <p id="avisoClave" class="chico"></p>
+      </section>
+
+      <section class="bloque">
+        <div class="rotulo">Si el micrófono no anda</div>
+        <p>Abierto como archivo suelto, Chrome no siempre da permiso de micrófono. Si ves
+          que no arranca, serví la carpeta y abrilo desde <code>localhost</code>, que sí es
+          un origen habilitado:</p>
+        <pre class="consola">npx serve .
+# o, si tenés Python:
+python3 -m http.server 8000</pre>
+        <p>Después entrá a <code>http://localhost:8000</code> y abrí el archivo desde ahí.
+          El dictado también necesita conexión: lo transcribe el servicio de voz del navegador.</p>
+      </section>
+
+      <section class="bloque">
+        <div class="rotulo">Lo que hay atrás</div>
+        <p>Las preguntas no son una lista fija: salen de las reglas comerciales de FACBSA aplicadas
+          a esa cuenta. Una cuenta clave que cae más de 15% en el trimestre dispara la pregunta por
+          el motivo de la caída; un cliente que compra jabalinas y pocos tomacables dispara la
+          pregunta por el <strong>gap de cross-selling</strong>, cuantificado en pesos.</p>
+        <div class="nota"><strong>La ficha no la escribe el modelo.</strong> Los números de
+          facturación, ranking y gap los arma el código desde la base y se mandan tal cual. El
+          asistente conversa; los datos no se parafrasean.</div>
+      </section>
+    </div>
+
+    <div class="columna-telefono">
+      <div class="telefono">
+        <div class="barra">
+          <div class="foto">FA</div>
+          <div>
+            <div class="quien">FACBSA · Relevamiento</div>
+            <div class="sub" id="sub">en línea</div>
+          </div>
+          <select id="vendedor" aria-label="Vendedor"></select>
+        </div>
+        <div class="chat" id="chat" aria-live="polite"></div>
+        <form class="redaccion" id="form">
+          <input type="text" id="entrada" placeholder="Escribí un mensaje" autocomplete="off" aria-label="Mensaje">
+          <button type="button" class="redondo hablar" id="hablar" title="Contar por audio" aria-label="Grabar audio">🎤</button>
+          <button type="submit" class="redondo mandar" id="mandar" aria-label="Enviar">➤</button>
+        </form>
+      </div>
+      <div class="pie-telefono" id="pieTelefono"></div>
+    </div>
+  </div>
+
+  <footer>
+    Demostración con datos de ejemplo. El sistema real corre sobre la base de ventas de FACBSA,
+    transcribe los audios en el servidor y manda los mensajes por WhatsApp Business.
+  </footer>
+</div>

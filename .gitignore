@@ -7,3 +7,6 @@ salidas/
 *.log
 .DS_Store
 datos/ejemplo-ventas.csv
+
+# El simulador de un archivo se regenera con "npm run demo:offline"
+demo/simulador-facbsa.html
