@@ -29,12 +29,27 @@ import { normalizarTexto } from './reglas.js';
 // `familias` dice en que productos compite cada uno. Se completa SOLO con lo que
 // confirma Comercial: deducirlo del nombre seria adivinar. Un competidor sin
 // familias cargadas funciona igual, pero el asistente no lo puede sugerir.
+//
+// `principalEn` marca las familias donde ese competidor es el que mas nos pelea.
+// Sirve para el orden: cuando el asistente le tira nombres al vendedor, el
+// primero tiene que ser el que mas probablemente escuche.
 export const COMPETIDORES = [
-  // Sin familias confirmadas todavia
-  { nombre: 'GEN ROD', alias: ['gen rod', 'genrod', 'gen-rod', 'jen rod'], familias: [] },
-  { nombre: 'ARGENJAB', alias: ['argenjab', 'argen jab', 'argenjav', 'argen yab'], familias: [] },
-  // Confirmados por Comercial
-  { nombre: 'METAL CE', alias: ['metal ce', 'metalce', 'metal se', 'metal ce.'], familias: ['JABALINAS LISAS'] },
+  {
+    nombre: 'GEN ROD',
+    alias: ['gen rod', 'genrod', 'gen-rod', 'jen rod'],
+    familias: ['JABALINAS LISAS', 'TOMACABLES', 'SOLDADURA EXOTERMICA'],
+  },
+  {
+    nombre: 'ARGENJAB',
+    alias: ['argenjab', 'argen jab', 'argenjav', 'argen yab'],
+    familias: ['JABALINAS LISAS', 'TOMACABLES'],
+  },
+  {
+    nombre: 'METAL CE',
+    alias: ['metal ce', 'metalce', 'metal se', 'metal ce.'],
+    familias: ['JABALINAS LISAS', 'TOMACABLES'],
+    principalEn: ['TOMACABLES'],
+  },
   { nombre: 'METALI', alias: ['metali', 'metalli', 'metaly', 'metalie'], familias: ['JABALINAS LISAS'] },
   { nombre: 'PRIOLO', alias: ['priolo', 'priollo', 'priolo hnos', 'priolo hermanos'], familias: ['JABALINAS LISAS'] },
 ];
@@ -54,8 +69,17 @@ export function normalizarCompetidor(texto) {
   return { competidor: normalizarTexto(crudo), conocido: false };
 }
 
+/**
+ * Quienes compiten en una familia, con el principal primero: es el nombre que el
+ * vendedor tiene mas chance de reconocer, y el orden importa porque al vendedor
+ * se le nombran solo los primeros.
+ */
 export function competidorEsperado(familia) {
-  return COMPETIDORES.filter((c) => c.familias.includes(familia)).map((c) => c.nombre);
+  const compiten = COMPETIDORES.filter((c) => c.familias.includes(familia));
+  const esPrincipal = (c) => (c.principalEn || []).includes(familia);
+  return [...compiten.filter(esPrincipal), ...compiten.filter((c) => !esPrincipal(c))].map(
+    (c) => c.nombre
+  );
 }
 
 // --- Escalas -----------------------------------------------------------------

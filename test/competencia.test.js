@@ -80,15 +80,19 @@ describe('catálogo de competidores', () => {
     assert.equal(r.competidor, 'CONDUCTORES DEL LITORAL');
   });
 
-  test('sabe quien compite en jabalinas, que es lo que confirmo Comercial', () => {
-    const enJabalinas = competidorEsperado('JABALINAS LISAS');
-    assert.deepEqual(enJabalinas, ['METAL CE', 'METALI', 'PRIOLO']);
+  test('sabe quien compite en cada familia, segun lo confirmo Comercial', () => {
+    assert.deepEqual(competidorEsperado('JABALINAS LISAS'),
+      ['GEN ROD', 'ARGENJAB', 'METAL CE', 'METALI', 'PRIOLO']);
+    // Metal Ce va primero: es el principal en tomacables, y el orden importa
+    // porque al vendedor se le nombran solo los primeros.
+    assert.deepEqual(competidorEsperado('TOMACABLES'), ['METAL CE', 'GEN ROD', 'ARGENJAB']);
+    assert.deepEqual(competidorEsperado('SOLDADURA EXOTERMICA'), ['GEN ROD']);
   });
 
   test('en las familias que Comercial no definio todavia, no sugiere nombres', () => {
     // Deducir en que producto compite cada uno a partir del nombre seria
     // adivinar. Vacio es la respuesta correcta hasta que lo confirmen.
-    assert.deepEqual(competidorEsperado('TOMACABLES'), []);
+    assert.deepEqual(competidorEsperado('CABLE IRAM 2467'), []);
     assert.deepEqual(competidorEsperado('FAMILIA QUE NO EXISTE'), []);
   });
 
@@ -104,7 +108,25 @@ describe('catálogo de competidores', () => {
     };
     const pregunta = preguntasEspeciales(ficha).find((p) => p.id === 'GAP_INVERTIDO_JABALINAS');
     assert.ok(pregunta, 'la regla del gap invertido tiene que dispararse');
-    assert.match(pregunta.pregunta, /METAL CE/);
+    assert.match(pregunta.pregunta, /GEN ROD/);
+    // No le tiramos los cinco: mas de tres deja de ser una ayuda.
+    const nombrados = ['GEN ROD', 'ARGENJAB', 'METAL CE', 'METALI', 'PRIOLO']
+      .filter((c) => pregunta.pregunta.includes(c));
+    assert.equal(nombrados.length, 3);
+  });
+
+  test('la pregunta del gap de tomacables tantea con quien compite ahi', () => {
+    const ficha = {
+      cliente: { canal: 'DISTRIBUIDOR' },
+      metricas: {
+        jabalinas: 400, tomacables: 30, ratioTomacables: 0.075,
+        gapTomacablesU: 237, gapTomacablesPesos: 2.7e6, segmento: 'B',
+        facturacion12m: 2e7, participacion: 0.02, diasSinComprar: 10, cuentaCompartida: false,
+      },
+      familias: [], competencia: [], esProspecto: false, alertas: [], ultimasVisitas: [],
+    };
+    const pregunta = preguntasEspeciales(ficha).find((p) => p.id === 'GAP_TOMACABLES');
+    assert.match(pregunta.pregunta, /METAL CE, GEN ROD, ARGENJAB/);
   });
 });
 

@@ -14,6 +14,15 @@
 //             el pedido y no lo conteste de compromiso)
 //   tipo      texto | opciones | numero
 import { competidorEsperado } from './competencia.js';
+
+// Cuantos competidores se le nombran al vendedor como pista. Mas de tres deja
+// de ser una ayuda para acordarse y pasa a ser una lista que no lee.
+const MAX_PISTAS = 3;
+
+function pista(familia, encabezado) {
+  const esperados = competidorEsperado(familia).slice(0, MAX_PISTAS);
+  return esperados.length ? ` ${encabezado} ${esperados.join(', ')}.` : '';
+}
 import {
   CAIDA_CHURN,
   CONCENTRACION_ALERTA,
@@ -92,11 +101,9 @@ export const REGLAS = [
       'Es una estimacion, no una demanda comprobada: confirmala en el cliente.',
     pregunta:
       '¿A quién le compran los tomacables, qué parte del consumo se lleva y a qué precio?' +
-      // La sugerencia sale sólo si Comercial ya definió quién compite en esta
+      // La pista sale sólo si Comercial ya definió quién compite en esta
       // familia. Sin eso, mejor no tirar nombres al aire.
-      (competidorEsperado('TOMACABLES').length
-        ? ` En esta familia suele aparecer ${competidorEsperado('TOMACABLES').join(' o ')}.`
-        : ''),
+      pista('TOMACABLES', 'Si no sabés el nombre, tanteá: en tomacables suele aparecer'),
     tipo: 'texto',
   },
   {
@@ -111,9 +118,7 @@ export const REGLAS = [
       'Probablemente las jabalinas las compra en otro lado.',
     pregunta:
       '¿Dónde compran las jabalinas, qué parte del consumo y a qué precio contra el nuestro?' +
-      (competidorEsperado('JABALINAS LISAS').length
-        ? ` Si no te lo dicen de entrada, tanteá: en jabalinas suele aparecer ${competidorEsperado('JABALINAS LISAS').join(', ')}.`
-        : ''),
+      pista('JABALINAS LISAS', 'Si no te lo dicen de entrada, tanteá: en jabalinas suele aparecer'),
     tipo: 'texto',
   },
 

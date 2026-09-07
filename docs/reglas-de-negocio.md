@@ -131,17 +131,30 @@ lo valide.
 **En qué compite cada uno** (confirmado por Comercial, se completa sólo con lo
 que ellos confirman):
 
-| Competidor | Familias |
+| Competidor | Familias en las que compite |
 |---|---|
-| Metal Ce | Jabalinas lisas |
+| Gen Rod | Jabalinas lisas · Tomacables · Soldadura exotérmica |
+| Argenjab | Jabalinas lisas · Tomacables |
+| Metal Ce | Jabalinas lisas · Tomacables **(principal)** |
 | Metali | Jabalinas lisas |
 | Priolo | Jabalinas lisas |
-| Gen Rod | *pendiente* |
-| Argenjab | *pendiente* |
 
-Con esto cargado, el asistente puede tantear al vendedor en vez de preguntar en
-abstracto: *"en jabalinas suele aparecer Metal Ce, Metali, Priolo"*. Un competidor
-sin familias cargadas funciona igual, pero no se lo puede sugerir.
+Visto al revés, que es como lo usa el asistente:
+
+| Familia | Quién nos compite |
+|---|---|
+| Jabalinas lisas | los cinco |
+| Tomacables | **Metal Ce** · Gen Rod · Argenjab |
+| Soldadura exotérmica | Gen Rod |
+| Cable IRAM 2467, pararrayos, conectores, conjuntos | *sin definir* |
+
+Con esto cargado, el asistente tantea al vendedor en vez de preguntar en
+abstracto: *"en tomacables suele aparecer Metal Ce, Gen Rod, Argenjab"*.
+
+Dos criterios de presentación: se le nombran **hasta tres** —más que eso deja de
+ser una ayuda para acordarse y pasa a ser una lista que no lee— y **el principal
+de esa familia va primero**, porque es el nombre que tiene más chance de
+reconocer. En las familias sin competidores definidos no se nombra a nadie.
 
 `src/negocio/competencia.js`
 
@@ -189,17 +202,19 @@ borra solo a los pocos días.
 Estas son las únicas piezas que todavía tienen valores puestos por defecto.
 Hasta que Comercial las confirme, el sistema funciona pero con supuestos.
 
-### a) Familias de **Gen Rod** y **Argenjab**
+### a) Competencia en cable, pararrayos y conectores
 
-Los cinco competidores están cargados, y Metal Ce, Metali y Priolo ya tienen
-confirmado que compiten en jabalinas lisas. Faltan dos cosas:
+Los cinco competidores están cargados con las familias en las que compiten (ver
+punto 5). Lo que queda abierto:
 
-- En qué productos compiten **Gen Rod** y **Argenjab**.
-- Si **Metal Ce** compite además en otra familia aparte de jabalinas.
+- Quién nos compite en **cable IRAM 2467**, que es el 39% de la facturación y hoy
+  no tiene ningún competidor identificado.
+- Lo mismo en **pararrayos**, **conectores** y **conjuntos**.
+- Si **Metali** o **Priolo** compiten además en alguna familia fuera de jabalinas.
+- Quién es el principal en jabalinas y en soldadura exotérmica. Sólo está marcado
+  el de tomacables (Metal Ce); en las otras, el orden es el del catálogo.
 
-Y queda abierto quién nos compite en **tomacables**, que es donde está el gap más
-grande de la cartera: hoy ninguno de los cinco tiene esa familia asignada, así
-que el asistente pregunta en abstracto.
+No es bloqueante: en esas familias el asistente pregunta sin nombrar a nadie.
 
 ### b) Familias de producto
 
