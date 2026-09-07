@@ -97,8 +97,9 @@ de FACBSA, no de una lista fija:
 
 | Situación detectada en la base | Qué le pide averiguar al vendedor |
 |---|---|
-| Cuenta segmento A que cae más de 15% en el trimestre | Por qué bajaron: proveedor nuevo, obra frenada o problema nuestro |
-| Sin comprar hace más de 90 días | A quién le compran hoy y por qué nos dejaron |
+| Deuda vencida | Si hay fecha de pago comprometida o un problema de fondo |
+| Cuenta segmento A o B que cae más de 15% en el trimestre | Por qué bajaron: proveedor nuevo, obra frenada o problema nuestro |
+| Sin comprar más días de los que tolera su canal | A quién le compran hoy y por qué nos dejaron |
 | Compra jabalinas pero pocos tomacables (ratio < 50%) | A quién le compran los tomacables y a qué precio |
 | Compra más tomacables que jabalinas (gap invertido) | Dónde compran las jabalinas |
 | No compra VARIOS (Conjuntos) | Si le mostró el conjunto armado y qué dijo |
@@ -107,7 +108,7 @@ de FACBSA, no de una lista fija:
 | Canal EMPRESA ENERGIA | Homologación y fecha de la próxima licitación |
 | Canal DISTRIBUIDOR | Rotación, stock y competencia en góndola |
 | Canal CONSTRUCTORA | Obras adjudicadas para los próximos 6 meses |
-| Cuenta > 15% de la facturación total | Disposición a firmar contrato marco |
+| Cuenta > 10% de la facturación total | Disposición a firmar contrato marco |
 | Segmento B | Qué necesitaría para duplicar la compra |
 | Segmento C | Cuál es el freno concreto para crecer |
 | Segmento D | Si conviene desarrollarlo o pasarlo a pedido mínimo |
@@ -325,12 +326,18 @@ Segmentacion:  A: 1 · B: 9 · C: 2 · D: 1
   en los últimos 12 meses. Si el segundo supera el 25%, queda registrado también.
 - **Familias**: se normalizan los alias del sistema. Una familia desconocida
   **no** se interpreta: queda marcada como SIN CLASIFICAR para que la valide Comercial.
-- **Segmentación**: bandas A (>$50M), B ($10–50M), C ($1–10M), D (<$1M).
-- **Gap de tomacables**: se calcula contra jabalinas (1 cada 2), no contra metros
-  de cable, y se excluyen los clientes con menos de 20 jabalinas.
+- **Segmentación**: por percentiles de la cartera — A son las cuentas que
+  acumulan el primer 50% de la facturación, B hasta el 80%, C hasta el 95%, D la
+  cola. No hay umbrales en pesos, para que la inflación no mueva a nadie de banda.
+- **Gap de tomacables**: se calcula contra jabalinas (1 cada 1,5), no contra
+  metros de cable, y se excluyen los clientes con menos de 20 jabalinas.
 
 Los umbrales están todos en `src/negocio/reglas.js`. Si Comercial cambia un
 criterio, se toca ahí y todo el bot queda alineado.
+
+**Las reglas están registradas en [docs/reglas-de-negocio.md](docs/reglas-de-negocio.md)**,
+con el porqué de cada una y qué queda por definir. Ese documento es la fuente de
+verdad: si el código y el documento no coinciden, el que está mal es el código.
 
 ---
 
@@ -398,7 +405,7 @@ paso con Meta. Resumen:
 | Los puntos del relevamiento del punto de venta | `src/chat/cuestionario.js` |
 | El catálogo de competidores y las escalas de competencia | `src/negocio/competencia.js` |
 | Las preguntas especiales y cuándo se disparan | `src/negocio/preguntas-especiales.js` |
-| Umbrales de segmento, ratio de tomacables, días de inactividad | `src/negocio/reglas.js` |
+| Cortes de segmento, ratio de tomacables, días de inactividad por canal | `src/negocio/reglas.js` |
 | Qué muestra la ficha del cliente | `src/negocio/ficha-cliente.js` |
 | Los textos del modo guiado | `src/chat/textos.js` |
 
