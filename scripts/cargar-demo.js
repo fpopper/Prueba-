@@ -238,9 +238,9 @@ const VISITAS_PREVIAS = [
     cliente: 'C-1042',
     vendedor: '5491100000002',
     competencia: [
-      { competidor: 'Sicame', familia: 'TOMACABLES', participacion: 'Todo se lo compran',
+      { competidor: 'Metal Ce', familia: 'TOMACABLES', participacion: 'Todo se lo compran',
         precio_relativo: 'Algo más barato', motivo: 'Precio', volumen: 'unos 40 por mes' },
-      { competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'Una parte chica',
+      { competidor: 'Argenjab', familia: 'JABALINAS LISAS', participacion: 'Una parte chica',
         precio_relativo: 'Parecido al nuestro', motivo: 'Entrega o stock' },
     ],
   },
@@ -248,9 +248,9 @@ const VISITAS_PREVIAS = [
     cliente: 'C-1120',
     vendedor: '5491100000001',
     competencia: [
-      { competidor: 'Genrod', familia: 'CABLE IRAM 2467', participacion: 'La mayor parte',
+      { competidor: 'Gen Rod', familia: 'CABLE IRAM 2467', participacion: 'La mayor parte',
         precio_relativo: 'Mucho más barato', motivo: 'Precio', volumen: 'lo que antes nos compraban a nosotros' },
-      { competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'La mayor parte',
+      { competidor: 'Gen Rod', familia: 'JABALINAS LISAS', participacion: 'La mayor parte',
         precio_relativo: 'Algo más barato', motivo: 'Costumbre o relación' },
     ],
   },
@@ -258,7 +258,7 @@ const VISITAS_PREVIAS = [
     cliente: 'C-1301',
     vendedor: '5491100000003',
     competencia: [
-      { competidor: 'Erico', familia: 'SOLDADURA EXOTERMICA', participacion: 'Todo se lo compran',
+      { competidor: 'Priolo', familia: 'SOLDADURA EXOTERMICA', participacion: 'Todo se lo compran',
         precio_relativo: 'Algo más caro', motivo: 'Lo pide el pliego' },
       { competidor: 'Conductores del Litoral', familia: 'JABALINAS LISAS', participacion: 'Mitad y mitad',
         precio_relativo: 'Algo más barato', motivo: 'Plazo de pago' },

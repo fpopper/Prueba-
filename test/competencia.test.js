@@ -55,9 +55,23 @@ function visitaAbierta() {
 
 describe('catálogo de competidores', () => {
   test('reconoce al competidor aunque el vendedor lo nombre al pasar', () => {
-    assert.equal(normalizarCompetidor('se los compran a Sicame').competidor, 'SICAME');
-    assert.equal(normalizarCompetidor('GENROD').competidor, 'GENROD');
-    assert.equal(normalizarCompetidor('un importado chino').competidor, 'IMPORTADO SIN MARCA');
+    assert.equal(normalizarCompetidor('se los compran a Metal Ce').competidor, 'METAL CE');
+    assert.equal(normalizarCompetidor('GENROD').competidor, 'GEN ROD');
+    assert.equal(normalizarCompetidor('a Priolo').competidor, 'PRIOLO');
+  });
+
+  test('tolera como lo escribe el vendedor y como sale de un audio', () => {
+    // Las variantes de escritura y pronunciacion tienen que caer en el mismo
+    // competidor: si no, el mismo proveedor aparece tres veces en el reporte.
+    for (const variante of ['gen rod', 'Genrod', 'gen-rod', 'jen rod']) {
+      assert.equal(normalizarCompetidor(variante).competidor, 'GEN ROD', variante);
+    }
+    for (const variante of ['argenjab', 'Argen Jab', 'argenjav']) {
+      assert.equal(normalizarCompetidor(variante).competidor, 'ARGENJAB', variante);
+    }
+    for (const variante of ['metali', 'Metalli', 'metaly']) {
+      assert.equal(normalizarCompetidor(variante).competidor, 'METALI', variante);
+    }
   });
 
   test('un competidor desconocido no se fuerza dentro de otro: queda marcado', () => {
@@ -66,8 +80,10 @@ describe('catálogo de competidores', () => {
     assert.equal(r.competidor, 'CONDUCTORES DEL LITORAL');
   });
 
-  test('sabe quién suele competir en cada familia', () => {
-    assert.ok(competidorEsperado('TOMACABLES').includes('SICAME'));
+  test('mientras Comercial no defina las familias, no sugiere nombres', () => {
+    // Deducir en que producto compite cada uno a partir del nombre seria
+    // adivinar. Vacio es la respuesta correcta hasta que lo confirmen.
+    assert.deepEqual(competidorEsperado('TOMACABLES'), []);
     assert.deepEqual(competidorEsperado('FAMILIA QUE NO EXISTE'), []);
   });
 });
@@ -75,17 +91,17 @@ describe('catálogo de competidores', () => {
 describe('validación de un registro', () => {
   test('acepta un registro completo y le pone el valor numérico a la escala', () => {
     const r = validarRegistro({
-      competidor: 'Sicame', familia: 'TOMACABLES',
+      competidor: 'Metal Ce', familia: 'TOMACABLES',
       participacion: 'Todo se lo compran', precio_relativo: 'Algo más barato', motivo: 'Precio',
     });
     assert.equal(r.ok, true);
-    assert.equal(r.fila.competidor, 'SICAME');
+    assert.equal(r.fila.competidor, 'METAL CE');
     assert.equal(r.fila.participacionValor, 1);
     assert.ok(r.fila.precioValor < 0, 'más barato tiene que dar negativo');
   });
 
   test('rechaza una escala inventada', () => {
-    const r = validarRegistro({ competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'bastante' });
+    const r = validarRegistro({ competidor: 'Argenjab', familia: 'JABALINAS LISAS', participacion: 'bastante' });
     assert.equal(r.ok, false);
     assert.match(r.error, /participacion tiene que ser/);
   });
@@ -108,9 +124,9 @@ describe('registro durante la visita', () => {
     const contexto = visitaAbierta();
     const { resultado } = ejecutarHerramienta(db, contexto, 'registrar_competencia', {
       competidores: [
-        { competidor: 'Sicame', familia: 'TOMACABLES', participacion: 'Todo se lo compran',
+        { competidor: 'Metal Ce', familia: 'TOMACABLES', participacion: 'Todo se lo compran',
           precio_relativo: 'Algo más barato', motivo: 'Precio', volumen: '40 por mes', observacion: null },
-        { competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: 'Una parte chica',
+        { competidor: 'Argenjab', familia: 'JABALINAS LISAS', participacion: 'Una parte chica',
           precio_relativo: null, motivo: null, volumen: null, observacion: null },
       ],
     });
@@ -118,13 +134,13 @@ describe('registro durante la visita', () => {
     assert.equal(resultado.guardados.length, 2);
     const filas = consultar(db, 'SELECT * FROM competencia WHERE visita_id = ?', [contexto.visitaId]);
     assert.equal(filas.length, 2);
-    assert.equal(filas.find((f) => f.competidor === 'SICAME').participacion_valor, 1);
+    assert.equal(filas.find((f) => f.competidor === 'METAL CE').participacion_valor, 1);
   });
 
   test('avisa qué le falta a cada registro para poder pedirlo conversando', () => {
     const contexto = visitaAbierta();
     const { resultado } = ejecutarHerramienta(db, contexto, 'registrar_competencia', {
-      competidores: [{ competidor: 'Genrod', familia: 'JABALINAS LISAS', participacion: null,
+      competidores: [{ competidor: 'Argenjab', familia: 'JABALINAS LISAS', participacion: null,
         precio_relativo: null, motivo: null, volumen: null, observacion: null }],
     });
     assert.equal(resultado.incompletos.length, 1);
@@ -133,7 +149,7 @@ describe('registro durante la visita', () => {
 
   test('una corrección del vendedor pisa el registro anterior', () => {
     const contexto = visitaAbierta();
-    const uno = { competidor: 'Sicame', familia: 'TOMACABLES', participacion: 'Casi nada',
+    const uno = { competidor: 'Metal Ce', familia: 'TOMACABLES', participacion: 'Casi nada',
       precio_relativo: null, motivo: null, volumen: null, observacion: null };
     ejecutarHerramienta(db, contexto, 'registrar_competencia', { competidores: [uno] });
     ejecutarHerramienta(db, contexto, 'registrar_competencia', {
@@ -141,7 +157,7 @@ describe('registro durante la visita', () => {
     });
 
     const filas = consultar(
-      db, "SELECT * FROM competencia WHERE visita_id = ? AND competidor = 'SICAME'", [contexto.visitaId]
+      db, "SELECT * FROM competencia WHERE visita_id = ? AND competidor = 'METAL CE'", [contexto.visitaId]
     );
     assert.equal(filas.length, 1);
     assert.equal(filas[0].participacion, 'La mayor parte');
@@ -158,16 +174,16 @@ describe('vuelve a la ficha de la próxima visita', () => {
   test('lo relevado aparece en la ficha y dispara la alerta', () => {
     const contexto = visitaAbierta();
     ejecutarHerramienta(db, contexto, 'registrar_competencia', {
-      competidores: [{ competidor: 'Genrod', familia: 'CABLE IRAM 2467', participacion: 'La mayor parte',
+      competidores: [{ competidor: 'Gen Rod', familia: 'CABLE IRAM 2467', participacion: 'La mayor parte',
         precio_relativo: 'Mucho más barato', motivo: 'Precio', volumen: null, observacion: null }],
     });
 
     const guardado = competenciaDelCliente(db, clienteId);
-    assert.ok(guardado.some((c) => c.competidor === 'GENROD'));
+    assert.ok(guardado.some((c) => c.competidor === 'GEN ROD'));
 
     const ficha = armarFicha(db, clienteId);
     assert.match(formatearFicha(ficha), /Competencia relevada/);
-    assert.ok(ficha.alertas.some((a) => /GENROD se lleva/.test(a.texto)));
+    assert.ok(ficha.alertas.some((a) => /GEN ROD se lleva/.test(a.texto)));
   });
 
   test('la próxima visita pregunta si eso cambió, en vez de preguntarlo de cero', () => {
@@ -180,16 +196,16 @@ describe('vuelve a la ficha de la próxima visita', () => {
 describe('agregación de la cartera', () => {
   test('resume por competidor y por familia, y marca los que faltan clasificar', () => {
     const resumen = resumirCartera([
-      { cliente_id: 1, competidor: 'GENROD', competidor_conocido: 1, familia: 'JABALINAS LISAS',
+      { cliente_id: 1, competidor: 'GEN ROD', competidor_conocido: 1, familia: 'JABALINAS LISAS',
         participacion_valor: 0.75, precio_valor: -0.08, motivo: 'Precio' },
-      { cliente_id: 2, competidor: 'GENROD', competidor_conocido: 1, familia: 'CABLE IRAM 2467',
+      { cliente_id: 2, competidor: 'GEN ROD', competidor_conocido: 1, familia: 'CABLE IRAM 2467',
         participacion_valor: 0.5, precio_valor: -0.2, motivo: 'Precio' },
       { cliente_id: 3, competidor: 'TALLER DEL SUR', competidor_conocido: 0, familia: 'JABALINAS LISAS',
         participacion_valor: 0.25, precio_valor: null, motivo: 'Plazo de pago' },
     ]);
 
     const genrod = resumen.competidores[0];
-    assert.equal(genrod.competidor, 'GENROD');
+    assert.equal(genrod.competidor, 'GEN ROD');
     assert.equal(genrod.cuentas, 2);
     assert.equal(genrod.motivoPrincipal, 'Precio');
     assert.ok(genrod.brechaPrecioPromedio < 0);

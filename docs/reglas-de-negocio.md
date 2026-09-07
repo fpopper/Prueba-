@@ -116,8 +116,20 @@ y un tramo honesto vale más que un número inventado.
 distinta: *entrega* es un problema de Producción, *costumbre* es frecuencia de
 visita, *pliego* es una homologación pendiente.
 
+### Catálogo de competidores
+
+Confirmados por Comercial: **Gen Rod · Argenjab · Metal Ce · Metali · Priolo**.
+
+De cada uno se guardan además las variantes de escritura y pronunciación con que
+puede aparecer (un audio transcribe "genrod", "gen rod" o "jen rod"), para que el
+mismo proveedor no termine contado tres veces en el reporte.
+
 Un competidor que no está en el catálogo no se fuerza dentro de otro: se guarda
-con el nombre que dijo el vendedor y el reporte lo lista aparte.
+con el nombre que dijo el vendedor y el reporte lo lista aparte para que Comercial
+lo valide.
+
+**Falta definir en qué familia compite cada uno.** Mientras esté vacío, el sistema
+no sugiere nombres al vendedor; todo lo demás funciona igual.
 
 `src/negocio/competencia.js`
 
@@ -165,14 +177,16 @@ borra solo a los pocos días.
 Estas son las únicas piezas que todavía tienen valores puestos por defecto.
 Hasta que Comercial las confirme, el sistema funciona pero con supuestos.
 
-### a) Catálogo de competidores — **el más importante**
+### a) En qué familia compite cada competidor
 
-La lista actual es una suposición. Hace falta, de cada competidor real: **cómo se
-llama**, **cómo lo nombran los vendedores y los clientes** (para reconocerlo en
-un audio) y **en qué familias nos compite**.
+Los cinco competidores ya están cargados (ver punto 5). Lo que falta es el cruce:
+de **Gen Rod, Argenjab, Metal Ce, Metali y Priolo**, en qué productos nos compite
+cada uno — jabalinas, tomacables, cable IRAM 2467, pararrayos, soldadura
+exotérmica, conectores, conjuntos.
 
-Puestos por defecto hoy: GENROD, SICAME, INTELLI, CIRPROTEC, ERICO / NVENT e
-"importado sin marca".
+Deducirlo del nombre sería adivinar, así que el campo quedó vacío. Con eso
+cargado, el asistente puede tantear al vendedor ("¿se los compran a Metal Ce?")
+en vez de preguntar en abstracto.
 
 ### b) Familias de producto
 

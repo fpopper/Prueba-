@@ -91,8 +91,12 @@ export const REGLAS = [
       `Gap estimado ${unidades(f.metricas.gapTomacablesU)} u. ≈ ${pesos(f.metricas.gapTomacablesPesos)}. ` +
       'Es una estimacion, no una demanda comprobada: confirmala en el cliente.',
     pregunta:
-      '¿A quién le compran los tomacables, qué parte del consumo se lleva y a qué precio? ' +
-      `Si no sabés el nombre, tanteá: en esta familia suele aparecer ${competidorEsperado('TOMACABLES').join(' o ')}.`,
+      '¿A quién le compran los tomacables, qué parte del consumo se lleva y a qué precio?' +
+      // La sugerencia sale sólo si Comercial ya definió quién compite en esta
+      // familia. Sin eso, mejor no tirar nombres al aire.
+      (competidorEsperado('TOMACABLES').length
+        ? ` En esta familia suele aparecer ${competidorEsperado('TOMACABLES').join(' o ')}.`
+        : ''),
     tipo: 'texto',
   },
   {
