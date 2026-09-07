@@ -138,6 +138,7 @@ que ellos confirman):
 | Metal Ce | Jabalinas lisas · Tomacables **(principal)** |
 | Metali | Jabalinas lisas |
 | Priolo | Jabalinas lisas |
+| LCT | Conectores a compresión **(principal)** |
 
 Visto al revés, que es como lo usa el asistente:
 
@@ -146,7 +147,9 @@ Visto al revés, que es como lo usa el asistente:
 | Jabalinas lisas | los cinco |
 | Tomacables | **Metal Ce** · Gen Rod · Argenjab |
 | Soldadura exotérmica | Gen Rod |
-| Cable IRAM 2467, pararrayos, conectores, conjuntos | *sin definir* |
+| Conectores a compresión | LCT |
+| **Cable IRAM 2467** | **prácticamente nadie** |
+| Pararrayos, conjuntos, conectores por perforación | *sin definir* |
 
 Con esto cargado, el asistente tantea al vendedor en vez de preguntar en
 abstracto: *"en tomacables suele aparecer Metal Ce, Gen Rod, Argenjab"*.
@@ -155,6 +158,18 @@ Dos criterios de presentación: se le nombran **hasta tres** —más que eso dej
 ser una ayuda para acordarse y pasa a ser una lista que no lee— y **el principal
 de esa familia va primero**, porque es el nombre que tiene más chance de
 reconocer. En las familias sin competidores definidos no se nombra a nadie.
+
+### Cable IRAM 2467: familia sin competencia
+
+En cable FACBSA prácticamente no tiene competencia. **No es un hueco de datos: es
+una posición de mercado**, y el sistema la trata como tal.
+
+La consecuencia práctica: si un vendedor reporta un competidor en cable, eso **no
+es rutina**. El asistente lo marca como novedad y le pide todo el detalle que
+pueda dar — quién es, desde cuándo, a qué precio, y si es un caso puntual o lo
+está viendo en varios clientes. Una entrada de competencia en cable es
+exactamente el tipo de señal temprana que la dirección quiere ver antes de que se
+note en la facturación.
 
 `src/negocio/competencia.js`
 
@@ -202,17 +217,21 @@ borra solo a los pocos días.
 Estas son las únicas piezas que todavía tienen valores puestos por defecto.
 Hasta que Comercial las confirme, el sistema funciona pero con supuestos.
 
-### a) Competencia en cable, pararrayos y conectores
+### a) Detalles sueltos de competencia
 
-Los cinco competidores están cargados con las familias en las que compiten (ver
-punto 5). Lo que queda abierto:
+El mapa está prácticamente cerrado. Queda:
 
-- Quién nos compite en **cable IRAM 2467**, que es el 39% de la facturación y hoy
-  no tiene ningún competidor identificado.
-- Lo mismo en **pararrayos**, **conectores** y **conjuntos**.
+- **LCT** se cargó en *conectores a compresión*, que es la lectura de "conectores".
+  Si también compite en los derivados por perforación (la línea importada de
+  Intelli), se agrega esa familia.
+- Quién nos compite en **pararrayos** y en **conjuntos**.
 - Si **Metali** o **Priolo** compiten además en alguna familia fuera de jabalinas.
-- Quién es el principal en jabalinas y en soldadura exotérmica. Sólo está marcado
-  el de tomacables (Metal Ce); en las otras, el orden es el del catálogo.
+- Quién es el principal en jabalinas y en soldadura exotérmica. Sólo están
+  marcados los de tomacables (Metal Ce) y conectores (LCT); en las otras, el orden
+  es el del catálogo.
+
+Nada de esto es bloqueante: en esas familias el asistente pregunta sin nombrar a
+nadie.
 
 No es bloqueante: en esas familias el asistente pregunta sin nombrar a nadie.
 

@@ -17,6 +17,7 @@ import {
   OPCIONES_PARTICIPACION,
   OPCIONES_PRECIO,
   competidorEsperado,
+  esFamiliaSinCompetencia,
   validarRegistro,
 } from '../negocio/competencia.js';
 
@@ -461,11 +462,28 @@ function herramientaCompetencia(db, contexto, { competidores }) {
     })
     .filter(Boolean);
 
+  // En las familias donde FACBSA practicamente no tiene competencia, que
+  // aparezca alguien es una novedad, no un dato de rutina.
+  const inusuales = consultar(
+    db,
+    'SELECT DISTINCT competidor, familia FROM competencia WHERE visita_id = ?',
+    [contexto.visitaId]
+  ).filter((r) => esFamiliaSinCompetencia(r.familia));
+
   return {
     resultado: {
       guardados,
       ...(rechazados.length ? { rechazados } : {}),
       ...(incompletos.length ? { incompletos } : {}),
+      ...(inusuales.length
+        ? {
+            inusual: inusuales.map((r) => `${r.competidor} en ${r.familia}`),
+            nota_inusual:
+              'En esa familia FACBSA practicamente no tiene competencia, asi que esto es una ' +
+              'novedad. Pedile todo el detalle que pueda darte: quien es, desde cuando, a que ' +
+              'precio y si es un caso puntual o lo esta viendo en varios clientes.',
+          }
+        : {}),
       nota: incompletos.length
         ? 'Completá lo que falta preguntándoselo con naturalidad, de a una cosa por vez y con botonera.'
         : 'Quedó completo el cuadro de competencia de esta visita.',

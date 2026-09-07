@@ -292,3 +292,38 @@ function armarPuntos(db, visitaId) {
   const { resultado } = ejecutarHerramienta(db, contexto, 'registrar_respuestas', { respuestas: [] });
   return resultado.pendientes;
 }
+
+describe('familias sin competencia', () => {
+  test('el cable IRAM 2467 está marcado como familia sin competencia habitual', async () => {
+    const { esFamiliaSinCompetencia } = await import('../src/negocio/competencia.js');
+    assert.equal(esFamiliaSinCompetencia('CABLE IRAM 2467'), true);
+    assert.equal(esFamiliaSinCompetencia('JABALINAS LISAS'), false);
+    assert.deepEqual(competidorEsperado('CABLE IRAM 2467'), []);
+  });
+
+  test('un competidor en cable se marca como novedad, no como dato de rutina', () => {
+    const contexto = visitaAbierta();
+    const { resultado } = ejecutarHerramienta(db, contexto, 'registrar_competencia', {
+      competidores: [{ competidor: 'Gen Rod', familia: 'CABLE IRAM 2467',
+        participacion: 'Una parte chica', precio_relativo: 'Algo más barato',
+        motivo: 'Precio', volumen: null, observacion: null }],
+    });
+    assert.ok(resultado.inusual, 'tiene que avisar que es inusual');
+    assert.match(resultado.nota_inusual, /novedad/i);
+  });
+
+  test('un competidor en jabalinas no dispara esa alerta', () => {
+    const contexto = visitaAbierta();
+    const { resultado } = ejecutarHerramienta(db, contexto, 'registrar_competencia', {
+      competidores: [{ competidor: 'Priolo', familia: 'JABALINAS LISAS',
+        participacion: 'Mitad y mitad', precio_relativo: 'Parecido al nuestro',
+        motivo: 'Precio', volumen: null, observacion: null }],
+    });
+    assert.equal(resultado.inusual, undefined);
+  });
+
+  test('LCT compite en conectores a compresión', () => {
+    assert.equal(normalizarCompetidor('les compran a LCT').competidor, 'LCT');
+    assert.deepEqual(competidorEsperado('CONECTORES A COMPRESION'), ['LCT']);
+  });
+});

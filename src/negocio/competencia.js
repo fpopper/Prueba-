@@ -52,7 +52,26 @@ export const COMPETIDORES = [
   },
   { nombre: 'METALI', alias: ['metali', 'metalli', 'metaly', 'metalie'], familias: ['JABALINAS LISAS'] },
   { nombre: 'PRIOLO', alias: ['priolo', 'priollo', 'priolo hnos', 'priolo hermanos'], familias: ['JABALINAS LISAS'] },
+  {
+    nombre: 'LCT',
+    alias: ['lct', 'l c t', 'l.c.t', 'ele ce te'],
+    // Comercial dijo "conectores". Lo cargamos en la linea a compresion, que es
+    // la establecida; si tambien compite en los derivados por perforacion, se
+    // agrega la otra familia.
+    familias: ['CONECTORES A COMPRESION'],
+    principalEn: ['CONECTORES A COMPRESION'],
+  },
 ];
+
+// Familias donde FACBSA practicamente no tiene competencia. No es un hueco de
+// datos: es una posicion de mercado, y cambia como se lee lo que trae el
+// vendedor. Si alguien reporta un competidor en una de estas familias, no es
+// rutina — es una novedad que hay que mirar.
+export const FAMILIAS_SIN_COMPETENCIA = ['CABLE IRAM 2467'];
+
+export function esFamiliaSinCompetencia(familia) {
+  return FAMILIAS_SIN_COMPETENCIA.includes(normalizarTexto(familia || ''));
+}
 
 /**
  * Lleva lo que dijo el vendedor al nombre canonico del competidor.
