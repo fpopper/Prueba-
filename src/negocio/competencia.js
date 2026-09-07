@@ -26,16 +26,17 @@ import { normalizarTexto } from './reglas.js';
 // vendedor apurado y, sobre todo, como sale de la transcripcion de un audio.
 // Son variantes de escritura y de pronunciacion, no marcas distintas.
 //
-// `familias` dice en que productos compite cada uno. Esta VACIO a proposito:
-// es informacion de negocio que todavia no confirmo Comercial, y deducirla del
-// nombre seria adivinar. Mientras este vacia, el sistema simplemente no sugiere
-// competidores esperados; todo lo demas funciona igual.
+// `familias` dice en que productos compite cada uno. Se completa SOLO con lo que
+// confirma Comercial: deducirlo del nombre seria adivinar. Un competidor sin
+// familias cargadas funciona igual, pero el asistente no lo puede sugerir.
 export const COMPETIDORES = [
+  // Sin familias confirmadas todavia
   { nombre: 'GEN ROD', alias: ['gen rod', 'genrod', 'gen-rod', 'jen rod'], familias: [] },
   { nombre: 'ARGENJAB', alias: ['argenjab', 'argen jab', 'argenjav', 'argen yab'], familias: [] },
-  { nombre: 'METAL CE', alias: ['metal ce', 'metalce', 'metal se', 'metal ce.'], familias: [] },
-  { nombre: 'METALI', alias: ['metali', 'metalli', 'metaly', 'metalie'], familias: [] },
-  { nombre: 'PRIOLO', alias: ['priolo', 'priollo', 'priolo hnos', 'priolo hermanos'], familias: [] },
+  // Confirmados por Comercial
+  { nombre: 'METAL CE', alias: ['metal ce', 'metalce', 'metal se', 'metal ce.'], familias: ['JABALINAS LISAS'] },
+  { nombre: 'METALI', alias: ['metali', 'metalli', 'metaly', 'metalie'], familias: ['JABALINAS LISAS'] },
+  { nombre: 'PRIOLO', alias: ['priolo', 'priollo', 'priolo hnos', 'priolo hermanos'], familias: ['JABALINAS LISAS'] },
 ];
 
 /**

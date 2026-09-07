@@ -128,8 +128,20 @@ Un competidor que no está en el catálogo no se fuerza dentro de otro: se guard
 con el nombre que dijo el vendedor y el reporte lo lista aparte para que Comercial
 lo valide.
 
-**Falta definir en qué familia compite cada uno.** Mientras esté vacío, el sistema
-no sugiere nombres al vendedor; todo lo demás funciona igual.
+**En qué compite cada uno** (confirmado por Comercial, se completa sólo con lo
+que ellos confirman):
+
+| Competidor | Familias |
+|---|---|
+| Metal Ce | Jabalinas lisas |
+| Metali | Jabalinas lisas |
+| Priolo | Jabalinas lisas |
+| Gen Rod | *pendiente* |
+| Argenjab | *pendiente* |
+
+Con esto cargado, el asistente puede tantear al vendedor en vez de preguntar en
+abstracto: *"en jabalinas suele aparecer Metal Ce, Metali, Priolo"*. Un competidor
+sin familias cargadas funciona igual, pero no se lo puede sugerir.
 
 `src/negocio/competencia.js`
 
@@ -177,16 +189,17 @@ borra solo a los pocos días.
 Estas son las únicas piezas que todavía tienen valores puestos por defecto.
 Hasta que Comercial las confirme, el sistema funciona pero con supuestos.
 
-### a) En qué familia compite cada competidor
+### a) Familias de **Gen Rod** y **Argenjab**
 
-Los cinco competidores ya están cargados (ver punto 5). Lo que falta es el cruce:
-de **Gen Rod, Argenjab, Metal Ce, Metali y Priolo**, en qué productos nos compite
-cada uno — jabalinas, tomacables, cable IRAM 2467, pararrayos, soldadura
-exotérmica, conectores, conjuntos.
+Los cinco competidores están cargados, y Metal Ce, Metali y Priolo ya tienen
+confirmado que compiten en jabalinas lisas. Faltan dos cosas:
 
-Deducirlo del nombre sería adivinar, así que el campo quedó vacío. Con eso
-cargado, el asistente puede tantear al vendedor ("¿se los compran a Metal Ce?")
-en vez de preguntar en abstracto.
+- En qué productos compiten **Gen Rod** y **Argenjab**.
+- Si **Metal Ce** compite además en otra familia aparte de jabalinas.
+
+Y queda abierto quién nos compite en **tomacables**, que es donde está el gap más
+grande de la cartera: hoy ninguno de los cinco tiene esa familia asignada, así
+que el asistente pregunta en abstracto.
 
 ### b) Familias de producto
 

@@ -80,11 +80,31 @@ describe('catálogo de competidores', () => {
     assert.equal(r.competidor, 'CONDUCTORES DEL LITORAL');
   });
 
-  test('mientras Comercial no defina las familias, no sugiere nombres', () => {
+  test('sabe quien compite en jabalinas, que es lo que confirmo Comercial', () => {
+    const enJabalinas = competidorEsperado('JABALINAS LISAS');
+    assert.deepEqual(enJabalinas, ['METAL CE', 'METALI', 'PRIOLO']);
+  });
+
+  test('en las familias que Comercial no definio todavia, no sugiere nombres', () => {
     // Deducir en que producto compite cada uno a partir del nombre seria
     // adivinar. Vacio es la respuesta correcta hasta que lo confirmen.
     assert.deepEqual(competidorEsperado('TOMACABLES'), []);
     assert.deepEqual(competidorEsperado('FAMILIA QUE NO EXISTE'), []);
+  });
+
+  test('la pregunta del gap invertido tantea con los competidores de jabalinas', () => {
+    const ficha = {
+      cliente: { canal: 'DISTRIBUIDOR' },
+      metricas: {
+        jabalinas: 100, tomacables: 120, ratioTomacables: 1.2, segmento: 'B',
+        facturacion12m: 2e7, participacion: 0.02, diasSinComprar: 10,
+        gapTomacablesU: 0, gapTomacablesPesos: 0, cuentaCompartida: false,
+      },
+      familias: [], competencia: [], esProspecto: false, alertas: [], ultimasVisitas: [],
+    };
+    const pregunta = preguntasEspeciales(ficha).find((p) => p.id === 'GAP_INVERTIDO_JABALINAS');
+    assert.ok(pregunta, 'la regla del gap invertido tiene que dispararse');
+    assert.match(pregunta.pregunta, /METAL CE/);
   });
 });
 

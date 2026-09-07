@@ -110,7 +110,10 @@ export const REGLAS = [
       `Compra mas tomacables que los que corresponderian a sus jabalinas (ratio ${porcentaje(f.metricas.ratioTomacables)}). ` +
       'Probablemente las jabalinas las compra en otro lado.',
     pregunta:
-      '¿Dónde compran las jabalinas, qué marca, qué parte del consumo y a qué precio contra el nuestro?',
+      '¿Dónde compran las jabalinas, qué parte del consumo y a qué precio contra el nuestro?' +
+      (competidorEsperado('JABALINAS LISAS').length
+        ? ` Si no te lo dicen de entrada, tanteá: en jabalinas suele aparecer ${competidorEsperado('JABALINAS LISAS').join(', ')}.`
+        : ''),
     tipo: 'texto',
   },
 
