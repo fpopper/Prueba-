@@ -36,6 +36,8 @@ const COLUMNAS_AGREGADAS = {
     zona: 'TEXT',
     cliente_desde: 'TEXT',
     particularidades: 'TEXT',
+    actividad_codigo: 'TEXT',
+    marcas: 'TEXT',
   },
 };
 

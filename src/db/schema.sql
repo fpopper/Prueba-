@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS clientes (
   -- la actividad es a que se dedica. Un instalador puede comprar directo o por
   -- distribuidor; lo que no cambia es que instala.
   actividad         TEXT,
+  actividad_codigo  TEXT,                    -- TipCliCod crudo de Mirol, por si la traduccion falta
   localidad         TEXT,
   provincia         TEXT,
   direccion         TEXT,
@@ -42,6 +43,10 @@ CREATE TABLE IF NOT EXISTS clientes (
   -- sin pasar por Administracion.
   deuda_vencida     REAL,
   condicion_pago    TEXT,                    -- el acuerdo (contado, 30 dias), no el saldo
+  -- Marcas que el vendedor dejo escritas en Mirol (NO VENDER, CERRO,
+  -- INCOBRABLE, FACTURA PENDIENTE). Son notas de el, no un estado del sistema:
+  -- la ficha las muestra como tales y no las trata como verdad vigente.
+  marcas            TEXT,
   actualizado_en    TEXT DEFAULT (datetime('now'))
 );
 

@@ -48,6 +48,8 @@ export function armarFicha(db, clienteId) {
       cuit: cliente.cuit || null,
       canal: cliente.canal,
       actividad: cliente.actividad || null,
+      actividadCodigo: cliente.actividad_codigo || null,
+      marcas: cliente.marcas || null,
       direccion: cliente.direccion || null,
       localidad: cliente.localidad,
       provincia: cliente.provincia,
@@ -167,6 +169,16 @@ function detectarAlertas(ficha) {
     alertas.push({
       nivel: 'OPORTUNIDAD',
       texto: `Gap de tomacables estimado: ${unidades(m.gapTomacablesU)} u. ≈ ${pesos(m.gapTomacablesPesos)}.`,
+    });
+  }
+
+  // Lo que algun vendedor dejo escrito en el sistema. Se muestra con esa
+  // aclaracion a proposito: es una nota de una persona, con la fecha que
+  // tenga, no un estado que el sistema haya verificado hoy.
+  if (ficha.cliente.marcas) {
+    alertas.push({
+      nivel: 'ALERTA',
+      texto: `Anotado en el sistema: ${ficha.cliente.marcas}. Verificalo antes de tomar pedido.`,
     });
   }
 

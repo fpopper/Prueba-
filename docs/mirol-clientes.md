@@ -81,3 +81,98 @@ Lo único que es realmente `particularidades` es lo que queda después de separa
 - Las bajas reales están escritas como texto en `CliObser` y `CliNomFan` (`CERRO`, `NO VENDER`).
 - La localidad no es agrupable sin normalizar.
 - La zona comercial no existe como dato.
+
+---
+
+# Lo que respondió Comercial (1-10-2026)
+
+| Pregunta | Respuesta |
+| --- | --- |
+| `TipCliCod` | **Es la actividad del cliente.** Falta la tabla de códigos. |
+| `AgeNum` | Sin tabla. Se deduce del territorio (abajo) y se confirmará cruzando con el reporte de ventas. |
+| `ConPagCod` | Sin tabla. **No se usa**: la condición de pago se toma del texto de `CliObser`. |
+| `CliObser` | **Son las observaciones que va poniendo el vendedor.** |
+| Deuda vencida | Está en otro lado. **Fuera de alcance por ahora.** |
+
+## `TipCliCod`: 5 de 22 códigos deducidos
+
+La tabla está en Mirol y todavía no la tenemos. Estos cinco salen del patrón de
+nombres de los clientes de cada grupo y **están a confirmar**:
+
+| Código | Clientes | Actividad propuesta | En qué me basé |
+| --- | --- | --- | --- |
+| 60 | 390 | Distribuidor eléctrico | Casas de materiales eléctricos |
+| 62 | 106 | Contratista electromecánico | Pfisterer, Elecnor, empresas de ingeniería |
+| 61 | 21 | Distribuidora eléctrica | Edesur, Edenor, Edelap, EPE Santa Fe |
+| 64 | 16 | Industria | Industrias y plantas |
+| 63 | 5 | Cooperativa eléctrica | Cooperativas eléctricas |
+
+Los 60–64 forman una familia coherente. Los códigos 1 a 10 concentran **2.748
+clientes (79%)** y no se pueden leer desde los nombres: ahí hay de todo.
+
+**Con esa tabla de Mirol, el 100% de la cartera queda clasificada por actividad
+de una sola vez.** Es la pieza que más rinde por lo poco que cuesta.
+
+## `AgeNum`: el territorio sí se lee
+
+Aunque no tengamos los nombres, el cruce con la provincia los identifica solo:
+
+| Código | Clientes | Dónde está |
+| --- | --- | --- |
+| 19 | 1.443 | Todo el país, disperso — parece el mostrador / venta directa |
+| 11 | 1.014 | CABA (562) y Buenos Aires (446), nada más |
+| 12 | 326 | Buenos Aires (317) |
+| 44 | 125 | NOA: Tucumán, Salta, Santiago, Jujuy, Catamarca |
+| 70 | 110 | Litoral: Santa Fe (100), Entre Ríos (10) |
+
+Los nombres salen del reporte de ventas, cruzando por código de cliente.
+
+# El importador
+
+`npm run importar-clientes -- CLIENTES.xlsx`
+
+Mirol exporta **.xls** (Excel 97, binario). Hay que abrirlo y **guardarlo como
+.xlsx o .csv**: el lector del proyecto no abre ese formato.
+
+Corrido sobre el archivo real del 14-9-2026:
+
+```
+leídos 3.471 · cargados 3.467 · contactos semilla 1.994
+CUIT descartado por ser relleno: 119
+provincias traducidas: 3.379
+con observación del vendedor: 3.165
+con marca de riesgo: 236  (CERRÓ 83 · NO VENDER 67 · FACTURA PENDIENTE 62 · INCOBRABLE 24)
+con actividad: 538     sin actividad: 2.929  ← falta la tabla de TipCliCod
+```
+
+Las 15 formas de escribir Capital Federal quedaron en una: **CABA, 901 clientes.**
+
+## Qué hace con cada cosa
+
+- **Localidad:** normaliza y unifica. De 636 variantes a 591 localidades reales.
+- **Provincia:** traduce el código de una letra de AFIP (`B` → Buenos Aires).
+- **CUIT:** descarta los de relleno (`00-…`, `55-…`).
+- **Fecha de alta:** descarta lo anterior a 1950, que es basura de migración.
+- **`CliObser`:** lo separa en tres. La marca de riesgo va al campo `marcas`, el
+  descuento en cascada se descarta (el precio vive en Mirol) y lo que queda es
+  la particularidad de verdad.
+- **`CliCon1-3`:** los carga como contactos en estado **A confirmar**, extrayendo
+  el teléfono cuando viene metido adentro del nombre.
+
+## Las dos reglas que lo hacen reimportable
+
+1. **`particularidades` no se pisa** si ya tiene algo. El vendedor la edita desde
+   el WhatsApp y esa versión es más fresca que la del maestro.
+2. **Un contacto no se duplica** ni se pisa si ya tiene cargo o rol puesto desde
+   el chat: esa versión sabe más que Mirol, donde sólo hay un nombre suelto.
+
+## Las marcas del vendedor
+
+`NO VENDER`, `CERRÓ`, `INCOBRABLE`, `FACTURA PENDIENTE` son notas de una
+persona, no un estado que el sistema haya verificado. La ficha las muestra
+diciendo exactamente eso:
+
+> 🟠 Anotado en el sistema: NO VENDER. Verificalo antes de tomar pedido.
+
+Es la diferencia entre avisarle al vendedor y mentirle: nadie sabe de cuándo es
+esa nota ni si el cliente se regularizó.
