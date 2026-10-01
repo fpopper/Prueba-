@@ -17,8 +17,39 @@ export function abrirDb(rutaDb = config.rutaDb) {
   const db = new DatabaseSync(rutaDb);
   const esquema = fs.readFileSync(path.join(AQUI, 'schema.sql'), 'utf8');
   db.exec(esquema);
+  migrar(db);
   instancia = db;
   return db;
+}
+
+// CREATE TABLE IF NOT EXISTS no agrega columnas nuevas a una base que ya existe.
+// Las bases de desarrollo y la del servidor ya estan creadas, asi que las
+// columnas que se suman despues hay que agregarlas a mano, una sola vez.
+const COLUMNAS_AGREGADAS = {
+  clientes: {
+    razon_social: 'TEXT',
+    actividad: 'TEXT',
+    horario_atencion: 'TEXT',
+    telefono: 'TEXT',
+    email: 'TEXT',
+    web: 'TEXT',
+    zona: 'TEXT',
+    cliente_desde: 'TEXT',
+    particularidades: 'TEXT',
+  },
+};
+
+function migrar(db) {
+  for (const [tabla, columnas] of Object.entries(COLUMNAS_AGREGADAS)) {
+    const existentes = new Set(
+      db.prepare(`PRAGMA table_info(${tabla})`).all().map((c) => c.name)
+    );
+    for (const [columna, tipo] of Object.entries(columnas)) {
+      if (!existentes.has(columna)) {
+        db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipo}`);
+      }
+    }
+  }
 }
 
 export function cerrarDb() {

@@ -292,13 +292,40 @@ volcó a Notion es la versión legible para el resto de la empresa, y quedó as�
 
 **Base de conocimiento FACBSA → Clientes**
 
-- La base está vacía y se dejó vacía a propósito: la decisión es que la escriba
-  el importador semanal, no una persona a mano.
-- Se documentó qué significa cada campo directamente en la base: `Canal` fija
-  los plazos de inactividad, `Segmento` es el resultado del Pareto 50/80/95,
-  `Estado` lo deriva el importador y `Particularidades` es el único campo
-  realmente manual, que el asistente lee para decidir si corresponde una
-  pregunta especial en esa visita.
+La ficha del cliente guarda **lo estático**; los números salen del reporte
+comercial. La prueba de si un dato va en la ficha es simple: *¿cambia solo,
+todos los meses?* Si cambia solo, va en el sistema de gestión. Si lo tiene que
+escribir una persona porque lo sabe y no está en ningún sistema, va en la ficha.
+
+Campos de la ficha, en Notion y en `src/db/schema.sql` (tabla `clientes`):
+
+| Bloque | Campos |
+| --- | --- |
+| Identidad | nombre de uso, razón social, CUIT, actividad |
+| Dónde se lo visita | dirección, localidad, provincia, zona, horario de atención, vendedor |
+| Cómo se lo contacta | teléfono, email, web de la empresa |
+| Relación comercial | cliente desde, condición de pago, recibe mailing, particularidades |
+| Calculado | segmento (Pareto 50/80/95), estado (activo / inactivo / prospecto) |
+
+`Actividad` **no** es lo mismo que `Canal`. Canal es *cómo nos compra*;
+actividad es *a qué se dedica*. Un instalador puede comprarnos directo o por
+distribuidor; lo que no cambia es que instala, y eso define qué productos le
+sirven.
+
+Las personas van aparte, en la base **Contactos de clientes** (tabla
+`cliente_contactos`): una fila por persona, con cargo, rol en la compra
+(decide / influye / compra / técnico / cobranzas), teléfono, email y si es el
+contacto principal. Se separan porque un cliente tiene varios interlocutores y
+no juegan el mismo papel: el que atiende el mostrador casi nunca es el que
+decide. Un contacto que se fue **no se borra, se marca** — y la ficha lo
+muestra como alerta, porque el cambio de interlocutor explica buena parte de
+las caídas de facturación.
+
+La base de Notion está vacía a propósito: la decisión es que la escriba el
+importador, no una persona a mano. Lo único enteramente manual es
+`particularidades` y los contactos, que el vendedor corrige en la visita
+siguiente desde el mismo WhatsApp. El importador usa `COALESCE` al actualizar,
+así que nunca pisa lo que se cargó a mano.
 
 **Base de conocimiento FACBSA → Reglas de negocio**
 
@@ -315,3 +342,10 @@ familia sin competencia habitual, y cómo se alimenta la base de Clientes.
 2. **GenRod y cable.** Notion le asigna la familia *Cables* por relevamiento
    web; Comercial dice que en cable casi no hay competencia. Hasta que se
    resuelva, el asistente no propone a GenRod en CABLE IRAM 2467.
+3. **Clientes con varias sucursales.** Hoy la ficha tiene una sola dirección.
+   Si un distribuidor tiene tres bocas y se visitan por separado, hay que
+   decidir si son tres fichas o una ficha con varios puntos de venta.
+4. **Qué campos estáticos trae el sistema de gestión.** Dirección, actividad y
+   condición de pago pueden estar o no en el archivo que se exporta; de eso
+   depende cuánto queda manual. El importador hoy sólo completa código, nombre,
+   CUIT, canal, localidad, provincia, deuda vencida y condición de pago.

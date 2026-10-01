@@ -8,23 +8,64 @@ PRAGMA foreign_keys = ON;
 -- Maestros que se cargan desde el Excel de ventas del sistema
 -- ---------------------------------------------------------------------------
 
+-- La ficha del cliente guarda lo ESTATICO: quien es, donde esta, a que se dedica
+-- y que hay que saber antes de entrar. Los numeros (facturacion, saldos, gaps)
+-- NO viven aca: salen del reporte comercial y se calculan en cliente_metricas.
+-- Mismo criterio que la base Clientes de Notion, para que las dos digan lo mismo.
 CREATE TABLE IF NOT EXISTS clientes (
   id                INTEGER PRIMARY KEY,
   codigo            TEXT UNIQUE,             -- codigo del cliente en el sistema
-  nombre            TEXT NOT NULL,
+  nombre            TEXT NOT NULL,           -- nombre de uso, el que dice el vendedor
   nombre_busqueda   TEXT NOT NULL,           -- nombre normalizado, sin acentos, para buscar
+  razon_social      TEXT,                    -- nombre legal, como figura en la factura
   cuit              TEXT,
   canal             TEXT,                    -- EMPRESA ENERGIA / DISTRIBUIDOR / CONSTRUCTORA / otros
+  -- A que se dedica. No es lo mismo que el canal: el canal es COMO nos compra,
+  -- la actividad es a que se dedica. Un instalador puede comprar directo o por
+  -- distribuidor; lo que no cambia es que instala.
+  actividad         TEXT,
   localidad         TEXT,
   provincia         TEXT,
   direccion         TEXT,
+  horario_atencion  TEXT,                    -- evita el viaje perdido, que en zona es medio dia
+  telefono          TEXT,                    -- de la empresa; el de cada persona va en cliente_contactos
+  email             TEXT,
+  web               TEXT,
+  zona              TEXT,                    -- zona comercial, para la hoja de ruta
+  cliente_desde     TEXT,                    -- ISO yyyy-mm-dd
+  -- Lo que Comercial sabe y no esta en ningun sistema: acuerdos, quien decide,
+  -- temas abiertos. Es lo que el asistente lee para decidir si corresponde una
+  -- pregunta especial en esa visita.
+  particularidades  TEXT,
   -- Cuenta corriente, si el archivo importado la trae. Se le muestra al vendedor
   -- antes de entrar: no se toma pedido nuevo sobre una cuenta con deuda vencida
   -- sin pasar por Administracion.
   deuda_vencida     REAL,
-  condicion_pago    TEXT,
+  condicion_pago    TEXT,                    -- el acuerdo (contado, 30 dias), no el saldo
   actualizado_en    TEXT DEFAULT (datetime('now'))
 );
+
+-- Las personas con las que se habla en cada cliente. Un cliente tiene varios
+-- interlocutores y no juegan el mismo papel: el que atiende el mostrador casi
+-- nunca es el que decide. Un contacto que se fue NO se borra, se marca: saber
+-- que cambio el interlocutor explica buena parte de las caidas de facturacion.
+CREATE TABLE IF NOT EXISTS cliente_contactos (
+  id                INTEGER PRIMARY KEY,
+  cliente_id        INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  nombre            TEXT NOT NULL,
+  cargo             TEXT,
+  -- DECIDE | INFLUYE | COMPRA | TECNICO | COBRANZAS | OTRO
+  rol_compra        TEXT,
+  telefono          TEXT,
+  email             TEXT,
+  principal         INTEGER NOT NULL DEFAULT 0,
+  -- ACTIVO | YA_NO_ESTA | A_CONFIRMAR
+  estado            TEXT NOT NULL DEFAULT 'ACTIVO',
+  notas             TEXT,
+  actualizado_en    TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS ix_contactos_cliente ON cliente_contactos(cliente_id);
 
 CREATE INDEX IF NOT EXISTS ix_clientes_busqueda ON clientes(nombre_busqueda);
 

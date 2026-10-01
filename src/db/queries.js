@@ -86,6 +86,23 @@ export function obtenerCliente(db, clienteId) {
   return consultarUna(db, 'SELECT * FROM clientes WHERE id = ?', [clienteId]);
 }
 
+// Los contactos ordenados como los necesita el vendedor: primero el principal,
+// despues el que decide, y los que ya no estan al final (no se borran, porque
+// saber que cambio el interlocutor explica muchas caidas de facturacion).
+export function contactosDelCliente(db, clienteId) {
+  return consultar(
+    db,
+    `SELECT nombre, cargo, rol_compra, telefono, email, principal, estado, notas
+       FROM cliente_contactos
+      WHERE cliente_id = ?
+      ORDER BY CASE estado WHEN 'YA_NO_ESTA' THEN 1 ELSE 0 END,
+               principal DESC,
+               CASE rol_compra WHEN 'DECIDE' THEN 0 WHEN 'INFLUYE' THEN 1 ELSE 2 END,
+               nombre`,
+    [clienteId]
+  );
+}
+
 export function obtenerMetricas(db, clienteId) {
   return consultarUna(db, 'SELECT * FROM cliente_metricas WHERE cliente_id = ?', [clienteId]);
 }

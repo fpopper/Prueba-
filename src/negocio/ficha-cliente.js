@@ -4,6 +4,7 @@
 import {
   competenciaDelCliente,
   compromisoAnterior,
+  contactosDelCliente,
   familiasDelCliente,
   obtenerCliente,
   obtenerMetricas,
@@ -33,6 +34,7 @@ export function armarFicha(db, clienteId) {
   const visitas = ultimasVisitas(db, clienteId);
   const competencia = competenciaDelCliente(db, clienteId);
   const compromiso = compromisoAnterior(db, clienteId);
+  const contactos = contactosDelCliente(db, clienteId);
 
   const variacionAnual = variacion(m.facturacion_12m, m.facturacion_12m_prev);
   const variacionTrim = variacion(m.facturacion_trim, m.facturacion_trim_prev);
@@ -42,12 +44,33 @@ export function armarFicha(db, clienteId) {
       id: cliente.id,
       codigo: cliente.codigo,
       nombre: cliente.nombre,
+      razonSocial: cliente.razon_social || null,
+      cuit: cliente.cuit || null,
       canal: cliente.canal,
+      actividad: cliente.actividad || null,
+      direccion: cliente.direccion || null,
       localidad: cliente.localidad,
       provincia: cliente.provincia,
+      zona: cliente.zona || null,
+      horarioAtencion: cliente.horario_atencion || null,
+      telefono: cliente.telefono || null,
+      email: cliente.email || null,
+      web: cliente.web || null,
+      clienteDesde: cliente.cliente_desde || null,
+      particularidades: cliente.particularidades || null,
       deudaVencida: cliente.deuda_vencida ?? null,
       condicionPago: cliente.condicion_pago || null,
     },
+    contactos: contactos.map((c) => ({
+      nombre: c.nombre,
+      cargo: c.cargo || null,
+      rolCompra: c.rol_compra || null,
+      telefono: c.telefono || null,
+      email: c.email || null,
+      principal: Boolean(c.principal),
+      estado: c.estado || 'ACTIVO',
+      notas: c.notas || null,
+    })),
     metricas: {
       facturacion12m: Number(m.facturacion_12m || 0),
       facturacion12mPrev: Number(m.facturacion_12m_prev || 0),
@@ -163,6 +186,18 @@ function detectarAlertas(ficha) {
     }
   }
 
+  // Que se haya ido el interlocutor explica buena parte de las caidas de
+  // facturacion, y es lo primero que conviene confirmar adentro del cliente.
+  const seFueron = (ficha.contactos || []).filter((c) => c.estado === 'YA_NO_ESTA');
+  if (seFueron.length) {
+    alertas.push({
+      nivel: 'ALERTA',
+      texto:
+        `Cambio el interlocutor: ${seFueron.map((c) => c.nombre).join(', ')} ya no esta. ` +
+        'Confirma con quien se habla ahora.',
+    });
+  }
+
   if (m.cuentaCompartida && m.agenteSecundario) {
     alertas.push({
       nivel: 'INFO',
@@ -172,6 +207,15 @@ function detectarAlertas(ficha) {
 
   return alertas;
 }
+
+const ROL_COMPRA = {
+  DECIDE: 'decide',
+  INFLUYE: 'influye',
+  COMPRA: 'compra / operativo',
+  TECNICO: 'tecnico',
+  COBRANZAS: 'cobranzas',
+  OTRO: null,
+};
 
 const ICONO_NIVEL = {
   CRITICO: '🔴',
@@ -190,10 +234,16 @@ export function formatearFicha(ficha) {
 
   L.push(`📋 *${c.nombre}*`);
   const ubicacion = [c.localidad, c.provincia].filter(Boolean).join(', ');
-  const cabecera = [c.codigo ? `Cod. ${c.codigo}` : null, c.canal, ubicacion]
+  const cabecera = [c.codigo ? `Cod. ${c.codigo}` : null, c.canal, c.actividad, ubicacion]
     .filter(Boolean)
     .join(' · ');
   if (cabecera) L.push(`_${cabecera}_`);
+
+  // Donde y cuando se lo visita. Un viaje perdido en zona cuesta medio dia.
+  const dondeIr = [c.direccion, c.horarioAtencion].filter(Boolean).join(' · ');
+  if (dondeIr) L.push(`📍 ${dondeIr}`);
+  if (c.telefono) L.push(`☎️ ${c.telefono}`);
+
   L.push('');
 
   if (m.segmento) {
@@ -252,10 +302,33 @@ export function formatearFicha(ficha) {
     );
   }
 
+  // Con quien hablar. El que atiende el mostrador casi nunca es el que decide,
+  // por eso va el rol y no solo el nombre.
+  const contactos = (ficha.contactos || []).filter((x) => x.estado !== 'YA_NO_ESTA');
+  if (contactos.length) {
+    L.push('');
+    L.push('*Contactos:*');
+    for (const p of contactos.slice(0, 4)) {
+      const rol = ROL_COMPRA[p.rolCompra] || null;
+      const detalle = [p.cargo, rol].filter(Boolean).join(', ');
+      L.push(
+        `• ${p.principal ? '⭐ ' : ''}${p.nombre}` +
+          (detalle ? ` — ${detalle}` : '') +
+          (p.telefono ? ` · ${p.telefono}` : '')
+      );
+    }
+  }
+
   if (ficha.competencia?.length) {
     L.push('');
     L.push('*Competencia relevada:*');
     for (const linea of resumirPorCliente(ficha.competencia)) L.push(`• ${linea}`);
+  }
+
+  // Lo que Comercial sabe y no esta en ningun sistema. Va tal cual se cargo.
+  if (c.particularidades) {
+    L.push('');
+    L.push(`🗒️ ${c.particularidades}`);
   }
 
   if (ficha.alertas.length) {
