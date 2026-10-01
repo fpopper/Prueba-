@@ -270,3 +270,48 @@ plazo por defecto (90/180).
 Los textos de la tabla de segmentación venían atados a las bandas en pesos.
 Ahora que el corte es por percentiles, conviene revisar que sigan describiendo lo
 que Comercial espera de cada banda.
+
+---
+
+## Dónde vive esto en Notion (1-10-2026)
+
+Este documento sigue siendo la fuente de verdad del código: el asistente lee
+`src/negocio/reglas.js` y `src/negocio/competencia.js`, no Notion. Lo que se
+volcó a Notion es la versión legible para el resto de la empresa, y quedó así:
+
+**Base de conocimiento FACBSA → Competencia y Mercado**
+
+- Fichas nuevas de competidores: **Metal Ce** (principal en tomacables),
+  **Metali**, **Priolo**, **LCT** (principal en conectores). Todas en estado
+  "A validar".
+- **GenRod** y **Argenjab** ya existían: se les agregó la confirmación de
+  Comercial sin tocar lo que había traído el relevamiento web.
+- La página *Competencia y Mercado* explica el modelo de relevamiento en el
+  punto de venta: las cuatro preguntas por familia, por qué son tramos cerrados
+  y el catálogo de competidores que usa el asistente.
+
+**Base de conocimiento FACBSA → Clientes**
+
+- La base está vacía y se dejó vacía a propósito: la decisión es que la escriba
+  el importador semanal, no una persona a mano.
+- Se documentó qué significa cada campo directamente en la base: `Canal` fija
+  los plazos de inactividad, `Segmento` es el resultado del Pareto 50/80/95,
+  `Estado` lo deriva el importador y `Particularidades` es el único campo
+  realmente manual, que el asistente lee para decidir si corresponde una
+  pregunta especial en esa visita.
+
+**Base de conocimiento FACBSA → Reglas de negocio**
+
+Siete fichas nuevas, todas "A validar": inactividad por canal, alerta de caída
+en A y B, concentración de cartera, deuda vencida como alerta crítica,
+relevamiento de competencia por competidor y familia, cable IRAM 2467 como
+familia sin competencia habitual, y cómo se alimenta la base de Clientes.
+
+### Divergencias abiertas entre el código y Notion
+
+1. **LPD** tiene ficha en Notion con amenaza Alta, pero no está en el catálogo
+   del asistente. Su fuerte son pararrayos y protección de sobretensiones, que
+   no son familias de FACBSA. Falta decidir si el vendedor lo releva igual.
+2. **GenRod y cable.** Notion le asigna la familia *Cables* por relevamiento
+   web; Comercial dice que en cable casi no hay competencia. Hasta que se
+   resuelva, el asistente no propone a GenRod en CABLE IRAM 2467.
