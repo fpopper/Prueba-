@@ -138,8 +138,11 @@ function preguntasEspeciales(c){
 
 /* --- estado --- */
 const S = {
-  vendedor:null, fase:"quien", cliente:null, visita:null, candidatos:null,
-  mcp:null, sample:null, db:null, tools:false, notionOk:false, ocupado:false, ultimoDia:null,
+  vendedor:null, cliente:null, visita:null, ultimoDia:null,
+  mcp:null, sample:null, db:null, tools:0, notionOk:false,
+  modo:"guion",          // "agente" cuando Claude puede conducir con herramientas
+  turnos:[],             // el dialogo que ve el agente
+  ocupado:false, confirmar:null, abortar:null,
 };
 const $ = s => document.querySelector(s);
 const el = (t,c,x) => { const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; };
@@ -169,22 +172,57 @@ function separadorDia(){
 function burbuja(clase, texto){
   separadorDia();
   const d = el("div","msg "+clase);
-  if (clase==="ficha" || clase==="bot"){
-    texto.split("\n").forEach((ln,i) => {
-      if (i) d.append(document.createElement("br"));
-      const t = /^\*\*(.+)\*\*$/.exec(ln), s = /^\*(.+)\*$/.exec(ln);
-      if (t){ const b=el("b","reng-tit",t[1]); d.append(b); }
-      else if (s){ const b=document.createElement("b"); b.textContent=s[1]; d.append(b); }
-      else d.append(document.createTextNode(ln));
-    });
-  } else d.textContent = texto;
+  if (clase==="ficha" || clase==="bot") pintarTexto(d, texto);
+  else d.textContent = texto;
   if (clase==="bot"||clase==="yo"||clase==="ficha") d.append(el("span","hora",hora()));
   $("#hilo").append(d); bajar(); return d;
 }
-function pensando(on){
-  const v = document.getElementById("pensando-x");
-  if (on && !v){ const d=el("div","pensando"); d.id="pensando-x"; d.append(el("i"),el("i"),el("i")); $("#hilo").append(d); bajar(); }
-  if (!on && v) v.remove();
+function pensando(on, que){
+  let v = document.getElementById("pensando-x");
+  if (!on){ if (v) v.remove(); return; }
+  if (!v){
+    v = el("div","pensando"); v.id = "pensando-x";
+    v.append(el("i"), el("i"), el("i"), el("span","que",""));
+    const parar = el("button","parar","Parar"); parar.type = "button";
+    parar.onclick = () => { if (S.abortar) S.abortar.abort(); };
+    v.append(parar);
+    $("#hilo").append(v);
+  }
+  const q = v.querySelector(".que");
+  if (q) q.textContent = que || "";
+  bajar();
+}
+/* Lo que el vendedor ve mientras el agente usa una herramienta. */
+function actividad(txt){ pensando(true, txt); }
+
+/* Pinta el markdown pobre que usamos: **titulo** y *subtitulo* por renglon. */
+function pintarTexto(d, texto){
+  String(texto).split("\n").forEach((ln,i) => {
+    if (i) d.append(document.createElement("br"));
+    const t = /^\*\*(.+)\*\*$/.exec(ln), s = /^\*(.+)\*$/.exec(ln);
+    if (t) d.append(el("b","reng-tit",t[1]));
+    else if (s){ const b=document.createElement("b"); b.textContent=s[1]; d.append(b); }
+    else d.append(document.createTextNode(ln));
+  });
+}
+/* Burbuja que se va llenando mientras el agente escribe. */
+function burbujaStream(){
+  separadorDia();
+  const d = el("div","msg bot");
+  const cuerpo = el("span");
+  d.append(cuerpo);
+  $("#hilo").append(d); bajar();
+  let ultimo = null;
+  return {
+    poner(t){
+      const limpio = String(t||"").replace(/\n*\s*OPC(I(O(N(E(S)?)?)?)?)?:?[\s\S]*$/i, "").trim();
+      if (limpio === ultimo) return;
+      ultimo = limpio; cuerpo.textContent = ""; pintarTexto(cuerpo, limpio); bajar();
+    },
+    cerrar(t){ if (t !== undefined) this.poner(t); d.append(el("span","hora",hora())); bajar(); },
+    quitar(){ d.remove(); },
+    vacio(){ return !ultimo; },
+  };
 }
 function chips(opciones, cb){
   limpiarChips();
@@ -392,47 +430,6 @@ function qComprobantes(iCli, a){
   return { cliente: CLIENTES[iCli].n, filtro: f.etiqueta, periodo: `${d} a ${h}`,
            comprobantes_en_el_periodo: g.size, ultimos: lista };
 }
-
-const PERIODO = { type:"string", description:"Mes inicial en formato AAAA-MM. Si se omite, desde el principio del reporte." };
-function herramientas(iCli){
-  return [
-    { name:"ventas_por_mes",
-      description:"Facturacion mes a mes de ESTE cliente, en pesos y en dolares, con cuantos comprobantes hubo. Sirve para 'cuanto compro', 'como viene', 'cuando compro', comparar periodos o ver si cayo. Se puede filtrar por producto o familia.",
-      inputSchema:{ type:"object", properties:{
-        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
-        producto:{ type:"string", description:"Familia o producto: jabalinas, tomacables, cable, conectores, pararrayos, soldadura, conjuntos, varillas, o parte del nombre de un articulo. Vacio = todo." } } },
-      execute: a => qPorMes(iCli, a||{}) },
-    { name:"ventas_por_producto",
-      description:"Que le compro ESTE cliente en un periodo, ordenado de mayor a menor: unidades, kilos, pesos, dolares y la fecha de la ultima compra de cada uno. nivel='familia' agrupa por familia, nivel='articulo' por articulo. Sirve para 'que compra', 'cuantas jabalinas lleva', 'nunca me compro cable?'.",
-      inputSchema:{ type:"object", properties:{
-        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
-        nivel:{ type:"string", enum:["familia","articulo"], description:"Por defecto familia." },
-        producto:{ type:"string", description:"Filtro opcional, igual que en ventas_por_mes." } } },
-      execute: a => qPorProducto(iCli, a||{}) },
-    { name:"comprobantes",
-      description:"Las ultimas facturas de ESTE cliente con su fecha, tipo, numero, importe y las lineas mas grandes de cada una. Sirve para 'cuando fue el ultimo pedido', 'que se llevo la ultima vez', 'cada cuanto compra'.",
-      inputSchema:{ type:"object", properties:{
-        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
-        limite:{ type:"number", description:"Cuantas devolver, 1 a 12. Por defecto 6." },
-        producto:{ type:"string", description:"Filtro opcional, igual que en ventas_por_mes." } } },
-      execute: a => qComprobantes(iCli, a||{}) },
-  ];
-}
-
-/* --- cuando el vendedor pregunta en vez de contestar --- */
-/* El \b despues de un prefijo como "cuant" nunca casa: "cuanto" sigue con letra.
-   Por eso cada prefijo lleva su propio \w*. */
-const INTERROG = /^(que|cuant\w*|cuand\w*|cual\w*|como|donde|quien\w*|porque|hay|tiene\w*|tenes|tenemos|alguna vez|nunca)\b/;
-const PEDIDO = /\b(mostra|mostrame|pasa|pasame|decime|deci|fijate|busca|buscame|revisa|mira|mirame|consulta|dame|traeme)\b/;
-const VOCAB = /\b(compr\w*|factur\w*|vent\w*|vendi\w*|pedid\w*|comprobante\w*|factura\w*|remit\w*|jabalin\w*|tomacable\w*|toma\w*|cable\w*|conduweld|alambre\w*|conector\w*|pararrayo\w*|soldadura|exotermica|conjunto\w*|varilla\w*|kilo\w*|unidad\w*|mes|meses|trimestre|semestre|ano|anio|historic\w*|historial|promedio|ranking|ultima vez|ultimo pedido|dolar\w*|plata|importe|monto|cuanto lleva|cuanto va)\b/;
-function esConsulta(t){
-  const crudo = String(t||"").trim();
-  const b = normal(crudo);
-  if (!b) return false;
-  const parece = /\?\s*$/.test(crudo) || INTERROG.test(b) || PEDIDO.test(b);
-  return parece && VOCAB.test(b);
-}
-
 function resumenLocal(iCli, pregunta){
   const f = filtroProducto(pregunta);
   const usar = f.ok && f.etiqueta !== "todo" ? f : null;
@@ -447,63 +444,500 @@ function resumenLocal(iCli, pregunta){
   return L.join("\n");
 }
 
-async function consultar(texto){
-  const iCli = CLIENTES.indexOf(S.cliente);
-  if (iCli < 0){ burbuja("bot","Primero decime de qué cliente, y te busco en el reporte."); return; }
-  if (!S.sample || !S.tools){
-    burbuja("bot", resumenLocal(iCli, texto));
-    if (!S.sample) burbuja("sistema","Sin el agente no puedo interpretar la pregunta, así que te muestro el reporte del cliente tal cual.");
-    return;
-  }
-  const c = S.cliente;
-  const prompt =
-`Sos el asistente de la fuerza de ventas de FACBSA, fábrica argentina de conductores bimetálicos para puesta a tierra.
-El vendedor está por visitar (o acaba de visitar) a ${c.n} y te pregunta algo sobre lo que ESE cliente le compra a FACBSA.
 
-Tenés herramientas que leen el reporte comercial de ese cliente. Usalas siempre: no inventes ni estimes un solo número, y no contestes de memoria.
-El reporte va de ${V_DESDE} a ${V_HASTA} (corte ${V_CORTE}). Los últimos 12 meses son ${V_MES[V_MES.length-12]} a ${V_HASTA}.
-Familias de producto: ${V_RUB.filter(x=>x!=="(sin rubro)").join(", ")}.
+/* ===========================================================================
+   NOTION — leer y escribir, con los nombres de propiedad verificados contra
+   el workspace. Todo lo que escribe pasa antes por el vendedor.
+=========================================================================== */
+const BASES = {
+  clientes:     { ds:DS.clientes,   titulo:"Cliente",   nombre:"Clientes" },
+  contactos:    { ds:"collection://3260ec70-6f22-4c54-840b-c3479f5fcf92", titulo:"Contacto", nombre:"Contactos de clientes" },
+  competidores: { ds:DS.competidor, titulo:"Competidor", nombre:"Competidores" },
+  cuestionario: { ds:DS.preguntas,  titulo:"Pregunta",  nombre:"Preguntas del relevamiento" },
+  visitas:      { ds:"collection://b5db6f27-f801-4d88-aa55-20f865befe82", titulo:"Visita", nombre:"Visitas relevadas" },
+  reglas:       { ds:"collection://65de220d-098a-8331-8caa-87c60d020af0", titulo:"Regla", nombre:"Reglas de negocio" },
+};
+const urlNotion = new Map();   // nombre de cliente -> url de su pagina
 
-Ya sabés esto de la ficha, no hace falta que lo consultes: facturación 12 meses ${pesos(c.f12)}, ${c.rank?`puesto ${c.rank} del ranking, `:""}última compra ${fecha(c.ult)}${c.dias!==null?` (hace ${c.dias} días)`:""}, segmento ${c.seg||"-"}, canal ${c.can||"-"}.
+async function filasNotion(ds, limite, filtro){
+  const data = { mode:"rows", data_source_url:ds, limit:Math.min(limite||20, 100) };
+  if (filtro) data.filter = filtro;
+  const r = await S.mcp.callTool(NOTION, "notion-query-data-sources", { data });
+  return (r.payload && r.payload.results) || [];
+}
+async function urlClienteEnNotion(nombre){
+  if (urlNotion.has(nombre)) return urlNotion.get(nombre);
+  if (!S.mcp) return null;
+  try{
+    const rows = await filasNotion(DS.clientes, 1, { type:"group", operator:"and", filters:[
+      { type:"property", property:"Cliente", propertyType:"title", operator:"string_is", value:{type:"exact", value:nombre} }]});
+    const u = rows.length ? rows[0].url : null;
+    urlNotion.set(nombre, u);
+    return u;
+  }catch(_){ return null; }
+}
+/* notion-update-page quiere el uuid con guiones, no la url de la pagina. */
+function uuidDe(url){
+  const m = /([0-9a-f]{32})/i.exec(String(url||""));
+  if (!m) return null;
+  const h = m[1].toLowerCase();
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+/* La relacion viene como texto JSON con las urls de las paginas. */
+const relacionTiene = (celda, url) => !!url && String(celda||"").includes(String(url).split("/p/")[1] || "\u0000");
 
-Cómo contestar:
-- De 1 a 4 líneas, en castellano rioplatense, como le hablás a un vendedor parado en la vereda. Sin preámbulos.
-- Siempre con la unidad: pesos, unidades o kilos, y el período al que corresponde.
-- Si la comparación cruza más de un año calendario, aclarálo o pasá los números a dólares: con la inflación, comparar pesos de años distintos engaña.
-- Si el reporte no tiene lo que pregunta, decilo derecho.
+function fechaVence(txt){
+  const m = /(\d{1,2})\s*[\/-]\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?/.exec(String(txt||""));
+  if (!m) return null;
+  const d = Number(m[1]), mes = Number(m[2]);
+  let a = m[3] ? Number(m[3]) : new Date().getFullYear();
+  if (a < 100) a += 2000;
+  if (d < 1 || d > 31 || mes < 1 || mes > 12) return null;
+  return `${a}-${String(mes).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+}
+const opcionesDe = id => {
+  const p = CUESTIONARIO.find(x => x.id === id) || CUESTIONARIO_LOCAL.find(x => x.id === id);
+  return (p && p.opciones) || [];
+};
+/* Una opcion que Notion no conozca tumba el alta entera: la validamos antes. */
+function opcionValida(valor, id, etiqueta){
+  if (valor === undefined || valor === null || valor === "") return null;
+  const ops = opcionesDe(id);
+  if (!ops.length) return String(valor);
+  const ok = calzar(valor, ops);
+  if (!ok) throw new Error(`"${valor}" no es un valor valido para ${etiqueta}. Tiene que ser uno de: ${ops.join(" | ")}.`);
+  return ok;
+}
+const FAMILIA_NOTION = { "Soldadura exotérm.":"Soldadura exotérmica" };
 
-Pregunta del vendedor: """${texto}"""`;
-  const burbujaRta = burbuja("bot", "…");
-  let txt = "";
+/* Copia local de la visita, en el store del artifact. */
+async function guardarLocal(v){
+  if (!S.db) return false;
   try {
-    const r = await S.sample(prompt, { modelTier:"default", tools:herramientas(iCli) });
-    txt = (r && r.text || "").trim();
-  } catch(e){
-    const cod = e && e.code;
-    burbujaRta.remove();
-    if (cod === "not_granted"){ S.sample = null; burbuja("bot", resumenLocal(iCli, texto)); return; }
-    if (cod === "tools_unavailable"){ S.tools = false; burbuja("bot", resumenLocal(iCli, texto)); return; }
-    if (cod === "rate_limited"){ burbuja("bot","Me quedé sin crédito por ahora. Te paso el reporte crudo:"); burbuja("bot", resumenLocal(iCli, texto)); return; }
-    burbuja("bot","No pude consultar el reporte ahora. Te paso lo que tengo:");
-    burbuja("bot", resumenLocal(iCli, texto));
-    return;
-  }
-  burbujaRta.remove();
-  burbuja("bot", txt || resumenLocal(iCli, texto));
+    const id = v.inicio.replace(/[:.]/g,"-") + "-" + normal(v.cliente).slice(0,24).replace(/ /g,"-");
+    await S.db.collection("visitas").doc(id).set(v);
+    return true;
+  } catch(_){ return false; }
 }
 
-/* --- cuestionario pendiente --- */
+async function escribirVisita(d){
+  if (!S.mcp) throw new Error("Notion no esta conectado en este telefono. Guarda la visita como observacion y avisale al vendedor que quedo solo en el registro local.");
+  const c = resolverCliente(d.cliente);
+  const marca = c.prueba ? "[PRUEBA] " : "";
+  const hoy = new Date().toISOString().slice(0,10);
+  const resultado  = opcionValida(d.resultado,  "resultado",    "Resultado");
+  const stock      = opcionValida(d.stock,      "stock_facbsa", "Stock de FACBSA");
+  const exhibicion = opcionValida(d.exhibicion, "exhibicion",   "Exhibicion");
+  const comp = d.competencia || {};
+  const familia       = opcionValida(comp.familia,       "competencia_familia",       "Familia de competencia");
+  const participacion = opcionValida(comp.participacion, "competencia_participacion", "Participacion de competencia");
+  const precio        = opcionValida(comp.precio,        "competencia_precio",        "Precio relativo");
+  const motivo        = opcionValida(comp.motivo,        "competencia_motivo",        "Motivo");
+
+  const completa = !!(resultado && stock && exhibicion && d.proximo_paso && d.contacto);
+  const props = {
+    "Visita": `${marca}${c.n} — ${fecha(hoy)}`,
+    "date:Fecha:start": hoy, "date:Fecha:is_datetime": 0,
+    "Estado": d.estado === "Cancelada" ? "Cancelada" : (completa ? "Completa" : "Incompleta"),
+    "Canal": "Carga manual",
+  };
+  const url = await urlClienteEnNotion(c.n);
+  if (url) props["Cliente"] = [url];
+  if (resultado)  props["Resultado"] = resultado;
+  if (stock)      props["Stock de FACBSA"] = stock;
+  if (exhibicion) props["Exhibición"] = exhibicion;
+  if (d.proximo_paso){
+    props["Próximo paso"] = String(d.proximo_paso);
+    const v = /^\d{4}-\d{2}-\d{2}$/.test(String(d.vence||"")) ? d.vence : fechaVence(d.proximo_paso);
+    if (v){ props["date:Vence:start"] = v; props["date:Vence:is_datetime"] = 0; }
+  }
+  const obs = [
+    c.prueba ? "VISITA DE PRUEBA — generada desde el banco de ensayo del asistente. Se puede borrar." : null,
+    `Relevó: ${S.vendedor || "sin identificar"}.`,
+    d.contacto ? "Habló con: " + d.contacto : null,
+    d.observaciones || null,
+  ].filter(Boolean).join(" · ");
+  if (obs) props["Observaciones"] = obs;
+  if (d.preguntas_especiales) props["Preguntas especiales"] = String(d.preguntas_especiales);
+
+  await S.mcp.callTool(NOTION, "notion-create-pages", { parent:{ data_source_id: DS.visitas }, pages:[{ properties: props }] });
+
+  let competencia = "sin competencia relevada";
+  if (comp.quien && !/^(ninguno|ninguna|nadie|nada|no)\b/i.test(String(comp.quien).trim())){
+    const conocido = calzar(comp.quien, COMPETIDORES);
+    const cp = {
+      "Registro": `${marca}${conocido || comp.quien} — ${familia || "sin familia"}`,
+      "date:Fecha:start": hoy, "date:Fecha:is_datetime": 0,
+    };
+    if (url) cp["Cliente"] = [url];
+    const fam = FAMILIA_NOTION[familia] || familia;
+    if (fam && fam !== "En ninguno") cp["Familia"] = fam;
+    if (participacion && participacion !== "No aplica") cp["Participación"] = participacion;
+    if (precio && precio !== "No aplica") cp["Precio relativo"] = precio;
+    if (motivo && motivo !== "No aplica") cp["Motivo"] = motivo;
+    if (!conocido) cp["Competidor nuevo"] = String(comp.quien);
+    await S.mcp.callTool(NOTION, "notion-create-pages", { parent:{ data_source_id: DS.compPdV }, pages:[{ properties: cp }] });
+    competencia = `${conocido || comp.quien}${fam ? " en " + fam : ""}`;
+  }
+  const guardada = { cliente:c.n, prueba:!!c.prueba, vendedor:S.vendedor, inicio:new Date().toISOString(),
+                     estado: props["Estado"], respuestas:{ resultado, stock_facbsa:stock, exhibicion,
+                     contacto:d.contacto, proximo_paso:d.proximo_paso, observaciones:d.observaciones,
+                     competencia_quien:comp.quien, competencia_familia:familia } };
+  await guardarLocal(guardada);
+  S.visita = guardada;
+  return { ok:true, estado:props["Estado"], cliente:c.n, competencia,
+           ligada_al_cliente: !!url,
+           aviso: url ? undefined : "No encontre la ficha del cliente en Notion, asi que la visita quedo sin relacionar." };
+}
+
+const CAMPOS_CLIENTE = {
+  particularidades:  "Particularidades",
+  condicion_de_pago: "Condición de pago",
+  horario:           "Horario de atención",
+  telefono:          "Teléfono",
+  email:             "Email",
+  direccion:         "Dirección",
+  zona:              "Zona",
+};
+async function actualizarCliente(nombre, campos){
+  if (!S.mcp) throw new Error("Notion no esta conectado en este telefono, no puedo modificar la ficha.");
+  const c = resolverCliente(nombre);
+  const url = await urlClienteEnNotion(c.n);
+  if (!url) throw new Error(`No encuentro la ficha de ${c.n} en Notion.`);
+  const props = {};
+  for (const [k,v] of Object.entries(campos || {})){
+    const prop = CAMPOS_CLIENTE[k];
+    if (prop && v !== undefined && v !== null && String(v).trim()) props[prop] = String(v).trim();
+  }
+  if (!Object.keys(props).length)
+    throw new Error(`No me pasaste nada para cambiar. Los campos que puedo tocar son: ${Object.keys(CAMPOS_CLIENTE).join(", ")}.`);
+  const id = uuidDe(url);
+  if (!id) throw new Error(`No pude resolver el id de la ficha de ${c.n} en Notion.`);
+  await S.mcp.callTool(NOTION, "notion-update-page",
+    { page_id: id, command: "update_properties", properties: props });
+  if (props["Particularidades"]) c.par = props["Particularidades"];
+  if (props["Horario de atención"]) c.hor = props["Horario de atención"];
+  if (props["Teléfono"]) c.tel = props["Teléfono"];
+  if (props["Dirección"]) c.dir = props["Dirección"];
+  if (props["Condición de pago"]) c.pag = props["Condición de pago"];
+  return { ok:true, cliente:c.n, cambiado:Object.keys(props) };
+}
+
+async function leerNotion(que, buscar, cliente){
+  if (!S.mcp) throw new Error("Notion no esta conectado en este telefono.");
+  const b = BASES[que];
+  if (!b) throw new Error(`No conozco la base "${que}". Las que puedo leer son: ${Object.keys(BASES).join(", ")}.`);
+  const q = String(buscar || "").trim();
+  let filtro = null;
+  if (q && (que === "clientes" || que === "competidores" || que === "reglas" || que === "cuestionario"))
+    filtro = { type:"group", operator:"and", filters:[
+      { type:"property", property:b.titulo, propertyType:"title", operator:"string_contains", value:{type:"exact", value:q} }]};
+  let filas = await filasNotion(b.ds, que === "cuestionario" ? 40 : 25, filtro);
+  if (cliente && (que === "contactos" || que === "visitas")){
+    const c = resolverCliente(cliente);
+    const url = await urlClienteEnNotion(c.n);
+    filas = filas.filter(f => relacionTiene(f["Cliente"], url));
+  }
+  /* Resultados chicos: el agente paga cada ronda. */
+  const podar = f => {
+    const o = {};
+    for (const [k,v] of Object.entries(f)){
+      if (k === "url" || k.startsWith("date:") && k.endsWith(":is_datetime")) continue;
+      if (v === "" || v === null || v === undefined) continue;
+      o[k.replace(/^date:(.+):start$/,"$1")] = typeof v === "string" && v.length > 300 ? v.slice(0,300) + "…" : v;
+    }
+    return o;
+  };
+  return { base:b.nombre, encontradas:filas.length, filas:filas.slice(0,12).map(podar) };
+}
+
+/* ===========================================================================
+   LAS HERRAMIENTAS DEL AGENTE
+=========================================================================== */
+const IDX_CLIENTE = new Map(CLIENTES.map((c,i) => [c, i]));
+function resolverCliente(nombre){
+  const q = String(nombre || "").trim();
+  if (!q){
+    if (S.cliente) return S.cliente;
+    throw new Error("Decime de que cliente. Si no sabes el nombre exacto, usa buscar_cliente primero.");
+  }
+  const cands = buscarClientes(limpiarPedido(q));
+  if (!cands.length) throw new Error(`No tengo ningun cliente que se llame "${q}". Usa buscar_cliente con una parte del nombre.`);
+  if (cands.length > 1 && normal(cands[0].n) !== normal(q)){
+    const exacto = cands.find(c => normal(c.n) === normal(q));
+    if (exacto) return exacto;
+    throw new Error(`"${q}" coincide con varios: ${cands.slice(0,5).map(c=>c.n).join(" | ")}. Preguntale al vendedor cual es, o usa el nombre completo.`);
+  }
+  return cands[0];
+}
+function resumenCliente(c){
+  return { cliente:c.n, segmento:c.seg, canal:c.can, actividad:c.act,
+           localidad:[c.loc,c.prov].filter(Boolean).join(", ") || undefined,
+           facturacion_12m:c.f12, ultima_compra:c.ult, dias_sin_comprar:c.dias,
+           atiende:c.ven, es_cliente_de_prueba:c.prueba ? true : undefined };
+}
+const PERIODO = { type:"string", description:"Mes en formato AAAA-MM." };
+
+function herramientas(){
+  const lista = [
+    { name:"buscar_cliente",
+      description:"Busca clientes de la cartera por una parte del nombre, la localidad o el CUIT, y devuelve un resumen de cada uno. Sin texto, devuelve los clientes del vendedor que mas urgencia tienen hoy. Usalo antes de abrir una ficha cuando no tenes el nombre exacto.",
+      inputSchema:{ type:"object", properties:{
+        texto:{ type:"string", description:"Parte del nombre, localidad o CUIT. Vacio = los mas urgentes del vendedor." } } },
+      execute: a => {
+        actividad("buscando el cliente…");
+        const q = String((a&&a.texto) || "").trim();
+        const cs = q ? buscarClientes(limpiarPedido(q)) : urgentes(6);
+        return { encontrados: cs.length, clientes: cs.slice(0,6).map(resumenCliente) };
+      } },
+
+    { name:"ficha_cliente",
+      description:"Abre la ficha completa de un cliente y la deja fijada como el cliente de esta visita: facturacion de 12 meses, variaciones, ranking, que compra, ratio jabalinas/tomacables, alertas y los puntos que conviene averiguar adentro. Llamalo apenas sepas a quien va a visitar: devuelve la ficha ya escrita para mostrarsela al vendedor.",
+      inputSchema:{ type:"object", properties:{
+        cliente:{ type:"string", description:"Nombre del cliente, como lo devolvio buscar_cliente." } },
+        required:["cliente"] },
+      execute: a => {
+        const c = resolverCliente(a && a.cliente);
+        actividad("abriendo la ficha…");
+        fijarCliente(c);
+        burbuja("ficha", armarFicha(c));
+        return { cliente:c.n, ficha_ya_mostrada_al_vendedor:true,
+                 alertas: alertas(c).map(x => `${x.n}: ${x.t}`),
+                 puntos_a_averiguar: preguntasEspeciales(c).map(e => ({ pregunta:e.p, por_que:e.m })) };
+      } },
+
+    { name:"reporte_ventas",
+      description:"Consulta el reporte comercial de un cliente: lo que facturo de verdad, linea por linea. vista='por_mes' da la serie mes a mes en pesos y dolares; vista='por_producto' da el ranking por familia o por articulo con unidades, kilos, pesos y ultima compra; vista='comprobantes' da las ultimas facturas con sus lineas. Usalo siempre que haga falta un numero: nunca estimes.",
+      inputSchema:{ type:"object", properties:{
+        cliente:{ type:"string", description:"Nombre del cliente. Si se omite, el de la visita en curso." },
+        vista:{ type:"string", enum:["por_mes","por_producto","comprobantes"], description:"Por defecto por_mes." },
+        desde:PERIODO, hasta:PERIODO,
+        nivel:{ type:"string", enum:["familia","articulo"], description:"Solo para por_producto. Por defecto familia." },
+        producto:{ type:"string", description:"Filtro: jabalinas, tomacables, cable, conectores, pararrayos, soldadura, conjuntos, varillas, o parte del nombre de un articulo." },
+        limite:{ type:"number", description:"Solo para comprobantes: 1 a 12. Por defecto 6." } } },
+      execute: a => {
+        a = a || {};
+        const c = resolverCliente(a.cliente);
+        const i = IDX_CLIENTE.get(c);
+        const v = String(a.vista || "por_mes");
+        actividad(`revisando el reporte de ${nombreCorto(c.n)}…`);
+        if (v === "por_producto") return qPorProducto(i, a);
+        if (v === "comprobantes") return qComprobantes(i, a);
+        return qPorMes(i, a);
+      } },
+
+    { name:"notion_leer",
+      description:"Lee la base de conocimiento de FACBSA en Notion. que='contactos' trae las personas de un cliente con su rol en la compra; 'visitas' las visitas anteriores de ese cliente; 'competidores' el catalogo con nivel de amenaza y en que familias compite; 'reglas' las reglas de negocio vigentes; 'clientes' la ficha administrativa; 'cuestionario' que datos hay que traer de cada visita.",
+      inputSchema:{ type:"object", properties:{
+        que:{ type:"string", enum:["contactos","visitas","competidores","reglas","clientes","cuestionario"] },
+        cliente:{ type:"string", description:"Para contactos y visitas: de que cliente. Si se omite, el de la visita en curso." },
+        buscar:{ type:"string", description:"Para competidores, reglas, clientes y cuestionario: texto a buscar en el titulo." } },
+        required:["que"] },
+      execute: async (a) => {
+        a = a || {};
+        actividad(`leyendo ${String(a.que||"Notion")} en Notion…`);
+        return await leerNotion(String(a.que), a.buscar, a.cliente);
+      } },
+
+    { name:"notion_guardar_visita",
+      description:"Escribe la visita relevada en Notion y, si hubo competencia, la registra en Competencia en el punto de venta. Llamalo cuando ya tengas lo que hace falta; antes de escribir, el vendedor ve un resumen y confirma. Si un valor de lista no es valido te lo digo y volves a intentar.",
+      inputSchema:{ type:"object", properties:{
+        cliente:{ type:"string" },
+        contacto:{ type:"string", description:"Nombre y cargo de con quien hablo." },
+        resultado:{ type:"string", description:"Una de las opciones de Resultado." },
+        stock:{ type:"string", description:"Una de las opciones de Stock de FACBSA." },
+        exhibicion:{ type:"string", description:"Una de las opciones de Exhibicion." },
+        proximo_paso:{ type:"string", description:"El compromiso concreto que quedo." },
+        vence:{ type:"string", description:"Fecha del proximo paso en AAAA-MM-DD, si la hay." },
+        observaciones:{ type:"string", description:"Lo que la oficina tiene que saber y no entra en ningun campo." },
+        preguntas_especiales:{ type:"string", description:"Los puntos a averiguar y que contesto el vendedor, una por renglon." },
+        competencia:{ type:"object", description:"Si nombro un competidor: {quien, familia, participacion, precio, motivo}." } },
+        required:["cliente"] },
+      execute: async (a) => {
+        a = a || {};
+        const c = resolverCliente(a.cliente);
+        const resumen = [
+          a.contacto ? "Habló con: " + a.contacto : null,
+          a.resultado ? "Resultado: " + a.resultado : null,
+          a.stock ? "Stock: " + a.stock : null,
+          a.exhibicion ? "Exhibición: " + a.exhibicion : null,
+          a.competencia && a.competencia.quien ? "Competencia: " + a.competencia.quien +
+            (a.competencia.familia ? " en " + a.competencia.familia : "") : null,
+          a.proximo_paso ? "Próximo paso: " + a.proximo_paso : null,
+          a.observaciones ? "Nota: " + a.observaciones : null,
+        ].filter(Boolean).join("\n");
+        pensando(false);
+        const r = await pedirConfirmacion(`*Esto es lo que voy a cargar en ${c.n}:*`, resumen,
+                                          c.prueba ? "Es el cliente de prueba: va marcado [PRUEBA]." : null);
+        if (!r.ok) return { cancelado:true, el_vendedor_dijo: r.texto || "que todavia no lo guardes" };
+        actividad("escribiendo en Notion…");
+        return await escribirVisita(a);
+      } },
+
+    { name:"notion_actualizar_cliente",
+      description:"Corrige la ficha administrativa de un cliente en Notion cuando el vendedor avisa que un dato cambio: particularidades, condicion de pago, horario de atencion, telefono, email, direccion o zona. Pisa el valor anterior, asi que el vendedor confirma antes. No sirve para facturacion ni saldos: eso no vive en Notion.",
+      inputSchema:{ type:"object", properties:{
+        cliente:{ type:"string" },
+        particularidades:{ type:"string", description:"Lo que hay que saber antes de entrar. Pisa lo que habia: incluí tambien lo que siga valiendo." },
+        condicion_de_pago:{ type:"string" }, horario:{ type:"string" },
+        telefono:{ type:"string" }, email:{ type:"string" },
+        direccion:{ type:"string" }, zona:{ type:"string" } },
+        required:["cliente"] },
+      execute: async (a) => {
+        a = a || {};
+        const c = resolverCliente(a.cliente);
+        const campos = {};
+        for (const k of Object.keys(CAMPOS_CLIENTE)) if (a[k]) campos[k] = a[k];
+        if (!Object.keys(campos).length)
+          throw new Error(`No me pasaste nada para cambiar. Campos posibles: ${Object.keys(CAMPOS_CLIENTE).join(", ")}.`);
+        const antes = { particularidades:c.par, condicion_de_pago:c.pag, horario:c.hor,
+                        telefono:c.tel, direccion:c.dir, zona:c.zona };
+        const detalle = Object.entries(campos).map(([k,v]) =>
+          `${CAMPOS_CLIENTE[k]}\nantes: ${antes[k] || "(vacío)"}\nqueda: ${v}`).join("\n\n");
+        pensando(false);
+        const r = await pedirConfirmacion(`*Voy a cambiar la ficha de ${c.n} en Notion:*`, detalle,
+                                          "Pisa lo que estaba. Mirá que no se pierda nada.");
+        if (!r.ok) return { cancelado:true, el_vendedor_dijo: r.texto || "que no lo cambies" };
+        actividad("actualizando la ficha en Notion…");
+        return await actualizarCliente(c.n, campos);
+      } },
+  ];
+  return S.tools ? lista.slice(0, Math.max(3, S.tools)) : lista;
+}
+
+function pedirConfirmacion(titulo, detalle, nota){
+  burbuja("bot", [titulo, "", detalle, nota ? "\n" + nota : ""].filter(Boolean).join("\n"));
+  return new Promise(resolve => {
+    S.confirmar = resolve;
+    chips(["Sí, dale", {t:"No, esperá", tenue:true}], t => {
+      if (S.confirmar !== resolve) return;
+      S.confirmar = null;
+      resolve({ ok: /^s/i.test(normal(t)) });
+    });
+  });
+}
+
+/* ===========================================================================
+   EL AGENTE
+=========================================================================== */
+const nombreCorto = n => String(n).split(/\s+/).slice(0,2).join(" ");
+function fijarCliente(c){
+  S.cliente = c;
+  barra(c.n, [c.loc,c.prov].filter(Boolean).join(", ") || "Visita en curso", false);
+}
+
+function reglas(){
+  const hoy = new Date().toISOString().slice(0,10);
+  const c = S.cliente;
+  const pedidos = (CUESTIONARIO.length ? CUESTIONARIO : CUESTIONARIO_LOCAL)
+    .filter(p => p.obl)
+    .map(p => `- ${p.texto}` + (p.opciones && p.opciones.length ? `  [${p.opciones.join(" | ")}]` : "  [texto libre]"))
+    .join("\n");
+  return `Sos el asistente de visitas de la fuerza de ventas de FACBSA, fábrica argentina de conductores bimetálicos para puesta a tierra (jabalinas, tomacables, cable IRAM 2467, conectores, pararrayos, soldadura exotérmica, conjuntos). Hablás por chat con un vendedor que está en la calle.
+
+Hoy es ${hoy}. El vendedor es ${S.vendedor || "todavía no identificado"}${S.vendedor ? ` y tiene ${CLIENTES.filter(x=>x.ven===S.vendedor&&!x.prueba).length} clientes en cartera` : ""}.
+${c ? `La visita en curso es a ${c.n} (segmento ${c.seg||"-"}, ${c.can||"-"}, ${[c.loc,c.prov].filter(Boolean).join(", ")}).` : "Todavía no hay un cliente abierto."}
+
+CÓMO TRABAJÁS
+Pensá como un jefe de ventas que conoce la cuenta, no como un formulario. Antes de la visita: entendé a quién va a ver, mirá la ficha, y decile en dos o tres líneas qué está en juego y qué tiene que resolver adentro. Después de la visita: escuchá cómo le fue y sacá vos lo que puedas de lo que contó.
+
+Tenés herramientas. Usalas en vez de suponer:
+- Un número de facturación, unidades, kilos o fechas de compra sale SIEMPRE de reporte_ventas. Nunca estimes ni redondees de memoria.
+- Con quién hablar, qué pasó en visitas anteriores, quién es un competidor o qué dice una regla: notion_leer.
+- Cuando tengas lo de la visita, notion_guardar_visita. El vendedor confirma antes de que se escriba.
+- Si avisa que cambió un dato de la ficha (horario, teléfono, quién decide, una condición), notion_actualizar_cliente.
+
+REGLAS DEL NEGOCIO QUE YA SABÉS
+- Inactividad según canal: Distribuidor 60 días es alarma y 120 es cuenta perdida; Distribuidora eléctrica y Venta Directa 120/240; obra 180/365; el resto 90/180.
+- Una cuenta que concentra 10% o más de la facturación total de FACBSA es de alta exposición; 20% o más es estructural.
+- Un segmento A o B que cae 15% o más en el trimestre es riesgo de churn: hay que entender por qué.
+- Quien compra jabalinas debería comprar alrededor de 2 tomacables cada 3 jabalinas. Si compra menos, los está comprando en otro lado.
+- En distribuidoras eléctricas la compra pasa por pliego: lo que manda es la homologación.
+- El reporte va de ${V_DESDE} a ${V_HASTA} (corte ${V_CORTE}). Los últimos 12 meses son ${V_MES[V_MES.length-12]} a ${V_HASTA}.
+- El reporte arranca en 2022 y la inflación es alta: si comparás pesos de años distintos, aclarálo o pasá a dólares.
+- Competidores conocidos: ${COMPETIDORES.join(", ")}.
+
+QUÉ TIENE QUE TRAER CADA VISITA
+${pedidos}
+No se lo preguntes como un cuestionario ni todo junto. Si ya lo dijo, no lo repreguntes. Si algo quedó vago, pedí la precisión que falta. De a una o dos preguntas por mensaje.
+
+CÓMO ESCRIBÍS
+Castellano rioplatense, de vos. Corto: dos a cinco renglones, salvo que te pidan detalle. Sin saludos de oficina, sin "¡excelente!", sin resumir lo que el vendedor te acaba de decir. Nada de viñetas largas ni tablas: esto se lee en un teléfono, caminando.
+Si la respuesta es de una lista cerrada, o hay dos o tres caminos claros, terminá el mensaje con un último renglón así:
+OPCIONES: primera | segunda | tercera
+Ese renglón no se muestra como texto: se convierte en botones. No lo uses para preguntas abiertas.`;
+}
+
+function separarOpciones(txt){
+  const m = /\n?\s*OPCIONES\s*:\s*(.+?)\s*$/i.exec(txt || "");
+  if (!m) return [String(txt||"").trim(), null];
+  const ops = m[1].split("|").map(s => s.trim()).filter(Boolean).slice(0,6);
+  return [String(txt).slice(0, m.index).trim(), ops.length ? ops : null];
+}
+
+async function agente(texto){
+  S.turnos.push({ role:"user", content: texto });
+  if (S.turnos.length > 26) S.turnos = S.turnos.slice(-26);
+  if (S.turnos[0].role !== "user") S.turnos = S.turnos.slice(1);
+
+  const entrada = [
+    { role:"user", content: reglas() },
+    { role:"assistant", content: "Listo. Soy el asistente de visitas de FACBSA." },
+    ...S.turnos,
+  ];
+  const burb = burbujaStream();
+  pensando(true, "pensando…");
+  S.abortar = new AbortController();
+  let txt = "";
+  try {
+    const r = await S.sample(entrada, {
+      modelTier: "default",
+      tools: herramientas(),
+      signal: S.abortar.signal,
+      onText: ({ text }) => { pensando(false); burb.poner(text); },
+    });
+    txt = String((r && r.text) || "").trim();
+  } catch(e){
+    pensando(false);
+    const cod = e && e.code;
+    if (cod === "cancelled"){ burb.quitar(); burbuja("sistema","Lo corté."); return; }
+    burb.quitar();
+    if (cod === "not_granted" || cod === "tools_unavailable"){
+      S.modo = "guion"; S.sample = cod === "not_granted" ? null : S.sample;
+      burbuja("sistema","No puedo usar el agente en este teléfono. Sigo con el relevamiento pregunta por pregunta.");
+      arrancarGuion(texto);
+      return;
+    }
+    if (cod === "rate_limited"){ burbuja("bot","Me quedé sin crédito por ahora. Probá de nuevo en un rato."); return; }
+    if (cod === "overloaded" || cod === "server_unavailable"){ burbuja("bot","Se me colgó la conexión. Repetímelo y lo intento de nuevo."); return; }
+    burbuja("bot","No pude contestarte ahora. Repetímelo, o pedime la ficha o el reporte y te los paso igual.");
+    return;
+  } finally {
+    pensando(false); S.abortar = null;
+  }
+
+  const [cuerpo, ops] = separarOpciones(txt);
+  if (!cuerpo && !ops){ burb.quitar(); burbuja("bot","Me quedé sin palabras. Repetímelo."); return; }
+  burb.cerrar(cuerpo || "…");
+  S.turnos.push({ role:"assistant", content: txt || "(sin texto)" });
+  if (ops) chips(ops, t => recibir(t));
+}
+
+/* ===========================================================================
+   MODO SIN AGENTE — el guion de siempre, para que la calle no quede a pie
+=========================================================================== */
 function aplica(p, r){
   if (!p.omite) return true;
   const v = (r.competencia_quien || "").trim().toLowerCase();
   if (!v) return true;
   return !/^(ninguno|ninguna|no|nadie|nada|ningun)\b/.test(v);
 }
-function pendientes(){
-  const r = S.visita.respuestas, pre = S.visita.opcPreguntadas || [];
-  return CUESTIONARIO.filter(p => (p.obl || pre.includes(p.id)) && aplica(p,r) && !r[p.id])
-    .concat(S.visita.especiales.filter(e => !r["esp_"+e.i]).map(e => ({
-      id:"esp_"+e.i, texto:e.p, contexto:e.m, tipo:"texto", obl:true, busca:e.p, orden:60+e.i, especial:true })))
+function pendientesDe(v){
+  const r = v.respuestas, pre = v.opcPreguntadas || [];
+  return (CUESTIONARIO.length ? CUESTIONARIO : CUESTIONARIO_LOCAL)
+    .filter(p => (p.obl || pre.includes(p.id)) && aplica(p,r) && !r[p.id])
+    .concat(v.especiales.filter(e => !r["esp_"+e.i]).map(e => ({
+      id:"esp_"+e.i, texto:e.p, contexto:e.m, tipo:"texto", obl:true, orden:60+e.i })))
     .sort((a,b)=>(a.orden||50)-(b.orden||50));
 }
 function guardarRespuesta(p, valor){
@@ -516,312 +950,110 @@ function guardarRespuesta(p, valor){
   if (!t) return false;
   S.visita.respuestas[p.id] = t; return true;
 }
-
-/* --- conversacion --- */
-function saludar(){
-  const g = leer("facbsa.vendedor");
-  burbuja("bot","Hola 👋 Soy el asistente de visitas de FACBSA.\nDecime a quién vas a visitar y te paso la ficha y lo que hay que resolver adentro. Al salir me contás cómo te fue.");
-  if (g && VENDEDORES.includes(g)){
-    S.fase = "quien";
-    burbuja("bot",`Sos ${g}, ¿no?`);
-    chips([nombrePila(g) ? `Sí, soy ${nombrePila(g)}` : "Sí, soy yo", {t:"Soy otro", tenue:true}], (t) => {
-      if (t === "Soy otro") preguntarQuien(); else elegirVendedor(g);
+function arrancarGuion(texto){
+  const cands = buscarClientes(limpiarPedido(texto || ""));
+  if (!S.cliente && cands.length === 1) abrirGuion(cands[0]);
+  else if (!S.cliente && cands.length > 1)
+    chips(cands.slice(0,5).map(c=>c.n), t => { const c = cands.find(x=>x.n===t); if (c) abrirGuion(c); });
+  else if (!S.cliente) burbuja("bot","Decime el nombre del cliente y te paso la ficha.");
+  else siguienteGuion();
+}
+function abrirGuion(c){
+  fijarCliente(c);
+  S.visita = { cliente:c.n, prueba:!!c.prueba, vendedor:S.vendedor, inicio:new Date().toISOString(),
+               estado:"EN_CURSO", respuestas:{}, opcPreguntadas:[],
+               especiales:preguntasEspeciales(c).map((e,i)=>({...e,i})) };
+  burbuja("ficha", armarFicha(c));
+  if (S.visita.especiales.length){
+    const L = ["*Lo que tenés que resolver adentro*",""];
+    S.visita.especiales.forEach((e,i)=>{ L.push(`${i+1}. ${e.p}`); L.push(`    ↳ ${e.m}`); L.push(""); });
+    burbuja("bot", L.join("\n").trim());
+  }
+  burbuja("bot","Cuando salgas, contame cómo te fue.");
+}
+function siguienteGuion(){
+  if (!S.visita) return;
+  const pend = pendientesDe(S.visita);
+  if (!pend.length){
+    const lista = CUESTIONARIO.length ? CUESTIONARIO : CUESTIONARIO_LOCAL;
+    const opc = lista.find(p => !p.obl && aplica(p,S.visita.respuestas)
+      && !S.visita.respuestas[p.id] && !S.visita.opcPreguntadas.includes(p.id));
+    if (opc){ S.visita.opcPreguntadas.push(opc.id); burbuja("bot", opc.texto); return; }
+    burbuja("bot","Listo, tengo todo. ¿Lo cargo?");
+    chips(["Cargar la visita",{t:"Todavía no",tenue:true}], async t => {
+      if (!/^cargar/i.test(t)) return;
+      pensando(true,"escribiendo en Notion…");
+      const r = S.visita.respuestas;
+      try {
+        await escribirVisita({ cliente:S.visita.cliente, contacto:r.contacto, resultado:r.resultado,
+          stock:r.stock_facbsa, exhibicion:r.exhibicion, proximo_paso:r.proximo_paso,
+          observaciones:r.observaciones, preguntas_especiales:S.visita.especiales
+            .map((e,i)=> r["esp_"+i] ? `${e.p} → ${r["esp_"+i]}` : null).filter(Boolean).join("\n"),
+          competencia:{ quien:r.competencia_quien, familia:r.competencia_familia,
+            participacion:r.competencia_participacion, precio:r.competencia_precio, motivo:r.competencia_motivo } });
+        pensando(false); burbuja("sistema","Cargada en Notion.");
+      } catch(e){ pensando(false); burbuja("sistema","No pude escribirla en Notion: " + (e && e.message || "error") + " Quedó guardada acá."); }
     });
+    return;
+  }
+  const p = pend[0];
+  burbuja("bot", p.texto + (p.contexto ? `\n    ↳ ${p.contexto}` : ""));
+  if (p.tipo === "opciones") chips(p.opciones, v => { guardarRespuesta(p,v); siguienteGuion(); });
+}
+function turnoGuion(texto){
+  if (!S.visita){ arrancarGuion(texto); return; }
+  const pend = pendientesDe(S.visita);
+  if (pend.length) guardarRespuesta(pend[0], texto);
+  siguienteGuion();
+}
+
+/* ===========================================================================
+   LA CONVERSACION
+=========================================================================== */
+function saludar(){
+  burbuja("bot","Hola 👋 Soy el asistente de visitas de FACBSA.");
+  const g = leer("facbsa.vendedor");
+  if (g && VENDEDORES.includes(g)){
+    burbuja("bot", `Sos ${g}, ¿no?`);
+    chips([nombrePila(g) ? `Sí, soy ${nombrePila(g)}` : "Sí, soy yo", {t:"Soy otro", tenue:true}],
+      t => { if (/^soy otro$/i.test(t)) preguntarQuien(); else elegirVendedor(g); });
   } else preguntarQuien();
 }
 function preguntarQuien(){
-  S.fase = "quien";
+  S.vendedor = null;
   burbuja("bot","¿Quién sos? Tocá tu nombre o escribilo.");
   chips(VENDEDORES, t => elegirVendedor(t));
 }
 function elegirVendedor(v){
   S.vendedor = v; guardar("facbsa.vendedor", v);
+  S.turnos = []; S.cliente = null; S.visita = null;
   const n = CLIENTES.filter(c => c.ven === v && !c.prueba).length;
   barra("Asistente de visitas", v + " · " + n + (n===1?" cliente":" clientes"), true);
-  burbuja("bot", `Listo${vocativo(v)}. Tenés ${n} ${n===1?"cliente":"clientes"} en cartera.`);
-  pedirCliente();
-}
-function pedirCliente(){
-  S.fase = "cliente"; S.cliente = null; S.visita = null; S.candidatos = null;
-  if (S.vendedor) barra("Asistente de visitas", S.vendedor, true);
-  burbuja("bot","¿A quién vas a visitar? Escribime el nombre — con una parte alcanza.");
+  const abre = `Listo${vocativo(v)}. ¿A quién vas a visitar? Decime el nombre, o preguntame lo que quieras del cliente y lo busco.`;
+  burbuja("bot", abre);
+  S.turnos.push({ role:"assistant", content: abre });
   const op = urgentes(3).map(c => c.n);
-  if (PRUEBA) op.push({t:"Cliente de prueba", tenue:true, prueba:true});
-  chips(op, (t,o) => {
-    if (o && o.prueba) abrirCliente(PRUEBA); else resolverCliente(t);
-  });
-}
-function resolverCliente(texto){
-  const q = limpiarPedido(texto);
-  const cands = buscarClientes(q);
-  if (!cands.length){
-    burbuja("bot", `No encuentro ninguno que se llame "${q}". Probá con otra parte del nombre, o con la localidad.`);
-    const op = urgentes(3).map(c => c.n);
-    if (PRUEBA) op.push({t:"Cliente de prueba", tenue:true, prueba:true});
-    chips(op, (t,o) => { if (o && o.prueba) abrirCliente(PRUEBA); else resolverCliente(t); });
-    return;
-  }
-  if (cands.length === 1){ abrirCliente(cands[0]); return; }
-  S.candidatos = cands.slice(0,5);
-  burbuja("bot", cands.length > 5
-    ? `Tengo ${cands.length} que coinciden. Estos son los más grandes — si no está, afiná el nombre.`
-    : "Tengo varios parecidos. ¿Cuál es?");
-  chips(S.candidatos.map(c => c.n + (c.loc ? " — " + c.loc : "")).concat([{t:"Ninguno de estos", tenue:true}]),
-    (t) => {
-      if (t === "Ninguno de estos"){ burbuja("bot","Dale, escribime el nombre de otra forma."); S.candidatos=null; return; }
-      const c = S.candidatos.find(x => t.startsWith(x.n));
-      if (c) abrirCliente(c); else resolverCliente(t);
-    });
+  if (PRUEBA) op.push({t:"Cliente de prueba", tenue:true});
+  chips(op, t => recibir(t === "Cliente de prueba" && PRUEBA ? PRUEBA.n : t));
 }
 
-function textoDesafios(v){
-  const L = ["*Lo que tenés que resolver adentro*", "Te lo vuelvo a preguntar al salir.", ""];
-  v.especiales.forEach((e,i) => { L.push(`${i+1}. ${e.p}`); L.push(`    ↳ ${e.m}`); L.push(""); });
-  return L.join("\n").trim();
+function ayuda(){
+  burbuja("bot", ["*Para qué te sirvo*","",
+    "Decime a quién vas a visitar y te paso la ficha y lo que conviene resolver adentro.",
+    "Preguntame lo que quieras de ese cliente: cuánto lleva, qué compra, cuándo fue el último pedido,",
+    "con quién conviene hablar, qué pasó la visita anterior. Lo busco en el reporte y en Notion.",
+    "Al salir contame cómo te fue y yo lo dejo cargado.","",
+    "Si cambió un dato de la ficha (horario, teléfono, quién decide), decímelo y lo corrijo en Notion.","",
+    "*Atajos:* ficha · reporte · otro cliente · mis visitas · quién soy · ayuda"].join("\n"));
 }
-function abrirCliente(c){
-  limpiarChips();
-  S.cliente = c; S.fase = "visita";
-  S.visita = { cliente:c.n, prueba:!!c.prueba, vendedor:S.vendedor, inicio:new Date().toISOString(),
-               estado:"DECLARADA", respuestas:{}, opcPreguntadas:[],
-               especiales:preguntasEspeciales(c).map((e,i)=>({...e,i})), historia:[] };
-  barra(c.n, [c.loc, c.prov].filter(Boolean).join(", ") || "Visita en curso", false);
-  if (c.prueba) burbuja("sistema","Cliente de prueba. Todo lo que cargues queda marcado [PRUEBA] en Notion y se puede borrar sin tocar un solo dato real.");
-  burbuja("ficha", armarFicha(c));
-  if (S.visita.especiales.length) burbuja("bot", textoDesafios(S.visita));
-  burbuja("bot","Si querés saber algo más de lo que te compra, preguntámelo y lo busco en el reporte.");
-  chips(["Entro ahora","Ya salí, te cuento",{t:"Otro cliente",tenue:true}], t => {
-    if (t === "Otro cliente"){ pedirCliente(); return; }
-    S.visita.estado = "EN_CURSO";
-    burbuja("bot", t === "Entro ahora"
-      ? "Dale. Cuando salgas, contame cómo te fue — escribiendo o dictando, todo junto si querés."
-      : "Contame cómo te fue. Tirame todo junto, yo después te pregunto lo que falte.");
-  });
-}
-
-/* --- el agente --- */
-async function interpretar(texto){
-  const pend = pendientes();
-  if (!S.sample) return { comentario:null, respuestas:{} };
-  const guia = pend.map(p => ({ id:p.id, pregunta:p.texto, busca:p.busca,
-    opciones:p.tipo==="opciones" ? p.opciones : undefined })).slice(0,8);
-  const prompt =
-`Sos el asistente de relevamiento de la fuerza de ventas de FACBSA, fábrica argentina de conductores bimetálicos para puesta a tierra.
-El vendedor acaba de salir de visitar a ${S.cliente.n} y te está contando cómo le fue, hablando natural.
-
-Tenés que hacer dos cosas:
-1. Extraer de lo que dijo las respuestas a los puntos pendientes. Para los puntos con opciones, devolvé EXACTAMENTE una de las opciones listadas, nunca un texto propio. Si de lo que dijo no se deduce la respuesta, no la inventes: omití ese id.
-2. Escribir un comentario de UNA línea, máximo 15 palabras, como le hablarías a un vendedor en la calle. Sin saludos ni florituras. Si no entendiste nada, decilo.
-
-Competidores conocidos: ${COMPETIDORES.join(", ")}.
-Puntos pendientes: ${JSON.stringify(guia)}
-
-Lo que dijo el vendedor: """${texto}"""
-
-Devolvé sólo JSON: {"comentario":"...","respuestas":{"id":"valor"}}`;
-  try {
-    const r = await S.sample.json(prompt, { modelTier:"default" });
-    return { comentario: r && r.comentario || null, respuestas: (r && r.respuestas) || {} };
-  } catch(e){
-    if (e && e.code === "not_granted") { S.sample = null; return { comentario:null, respuestas:{}, sinAgente:true }; }
-    return { comentario:null, respuestas:{}, error:(e && e.code) || "error" };
-  }
-}
-
-async function turno(texto){
-  S.visita.historia.push({ rol:"vendedor", t:texto });
-  if (S.visita.estado === "DECLARADA") S.visita.estado = "EN_CURSO";
-  limpiarChips();
-
-  const antes = pendientes();
-  const esperada = antes[0];
-  let tomada = false;
-  if (esperada && esperada.tipo === "opciones" && calzar(texto, esperada.opciones))
-    tomada = guardarRespuesta(esperada, texto);
-
-  if (!tomada){
-    pensando(true);
-    const r = await interpretar(texto);
-    pensando(false);
-    let n = 0;
-    for (const [id,val] of Object.entries(r.respuestas||{})){
-      const p = antes.find(x => x.id === id);
-      if (p && guardarRespuesta(p, val)) n++;
-    }
-    if (r.sinAgente) burbuja("bot","No puedo usar el agente acá, así que te las pregunto una por una.");
-    else if (r.error) burbuja("bot","No pude procesar eso. Te lo pregunto directo.");
-    else if (r.comentario) burbuja("bot", r.comentario);
-    /* Si el agente no sacó nada, tomo el texto como respuesta a lo que estaba preguntando. */
-    if (!n && esperada && esperada.tipo !== "opciones") guardarRespuesta(esperada, texto);
-  }
-  siguiente();
-}
-
-function siguiente(){
-  const pend = pendientes();
-  if (!pend.length){
-    /* Las no obligatorias se preguntan una sola vez, recien cuando no falta nada. */
-    const opc = CUESTIONARIO.find(p => !p.obl && aplica(p,S.visita.respuestas)
-      && !S.visita.respuestas[p.id] && !S.visita.opcPreguntadas.includes(p.id));
-    if (opc){
-      S.visita.opcPreguntadas.push(opc.id);
-      burbuja("bot", opc.texto);
-      if (opc.tipo === "opciones")
-        chips(opc.opciones, v => { guardarRespuesta(opc, v); S.visita.historia.push({rol:"vendedor",t:v}); siguiente(); });
-      return;
-    }
-    burbuja("bot","Listo, tengo todo. ¿Cerramos el relevamiento?");
-    chips(["Cerrar relevamiento",{t:"Agregar algo más",tenue:true}], t => {
-      if (t === "Cerrar relevamiento") cerrar();
-      else burbuja("bot","Dale, contame.");
-    });
-    return;
-  }
-  const p = pend[0];
-  const total = CUESTIONARIO.filter(x=>x.obl).length + S.visita.especiales.length;
-  const hechas = Object.keys(S.visita.respuestas).length;
-  let t = `${Math.min(hechas+1,total)}/${total} · ${p.texto}`;
-  if (p.contexto) t += `\n    ↳ ${p.contexto}`;
-  burbuja("bot", t);
-  if (p.tipo === "opciones")
-    chips(p.opciones, v => { guardarRespuesta(p, v); S.visita.historia.push({rol:"vendedor",t:v}); siguiente(); });
-}
-
-/* --- cierre y guardado --- */
-async function urlClienteEnNotion(nombre){
-  if (!S.mcp) return null;
-  try{
-    const r = await S.mcp.callTool(NOTION,"notion-query-data-sources",{ data:{ mode:"rows", data_source_url:DS.clientes, limit:1,
-      filter:{ type:"group", operator:"and", filters:[
-        { type:"property", property:"Cliente", propertyType:"title", operator:"string_is", value:{type:"exact", value:nombre} }]}}});
-    const rows = (r.payload && r.payload.results) || [];
-    return rows.length ? rows[0].url : null;
-  }catch(_){ return null; }
-}
-function fechaVence(txt){
-  const m = /(\d{1,2})\s*[\/-]\s*(\d{1,2})(?:\s*[\/-]\s*(\d{2,4}))?/.exec(String(txt||""));
-  if (!m) return null;
-  const hoy = new Date();
-  const d = Number(m[1]), mes = Number(m[2]);
-  let a = m[3] ? Number(m[3]) : hoy.getFullYear();
-  if (a < 100) a += 2000;
-  if (d < 1 || d > 31 || mes < 1 || mes > 12) return null;
-  const iso = `${a}-${String(mes).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
-}
-async function guardarEnNotion(v){
-  if (!S.mcp) return { ok:false, motivo:"sin-notion" };
-  const r = v.respuestas;
-  const marca = v.prueba ? "[PRUEBA] " : "";
-  const completa = !pendientesDe(v).length;
-  const props = {
-    "Visita": `${marca}${v.cliente} — ${fecha(v.inicio.slice(0,10))}`,
-    "date:Fecha:start": v.inicio.slice(0,10), "date:Fecha:is_datetime": 0,
-    "Estado": v.estado === "CANCELADA" ? "Cancelada" : (completa ? "Completa" : "Incompleta"),
-    "Canal": "Carga manual",
-  };
-  const url = await urlClienteEnNotion(v.cliente);
-  if (url) props["Cliente"] = [url];
-  if (r.resultado) props["Resultado"] = r.resultado;
-  if (r.stock_facbsa) props["Stock de FACBSA"] = r.stock_facbsa;
-  if (r.exhibicion) props["Exhibición"] = r.exhibicion;
-  if (r.proximo_paso){
-    props["Próximo paso"] = r.proximo_paso;
-    const vence = fechaVence(r.proximo_paso);
-    if (vence){ props["date:Vence:start"] = vence; props["date:Vence:is_datetime"] = 0; }
-  }
-  const obs = [
-    v.prueba ? "VISITA DE PRUEBA — generada desde el banco de ensayo del asistente. Se puede borrar." : null,
-    `Relevó: ${v.vendedor || "sin identificar"}.`,
-    r.contacto ? "Habló con: " + r.contacto : null,
-    r.observaciones && !/^no$/i.test(r.observaciones.trim()) ? r.observaciones : null,
-  ].filter(Boolean).join(" · ");
-  if (obs) props["Observaciones"] = obs;
-  const esp = v.especiales.map((e,i) => r["esp_"+i] ? `${e.p} → ${r["esp_"+i]}` : null).filter(Boolean).join("\n");
-  if (esp) props["Preguntas especiales"] = esp;
-  try {
-    await S.mcp.callTool(NOTION,"notion-create-pages",{ parent:{ data_source_id: DS.visitas }, pages:[{ properties: props }]});
-  } catch(e){ return { ok:false, motivo:(e && e.code) || "error" }; }
-
-  if (r.competencia_quien && aplica({omite:true}, r)) {
-    const cp = {
-      "Registro": `${marca}${calzar(r.competencia_quien, COMPETIDORES) || r.competencia_quien} — ${r.competencia_familia || "sin familia"}`,
-      "date:Fecha:start": v.inicio.slice(0,10), "date:Fecha:is_datetime": 0,
-    };
-    if (url) cp["Cliente"] = [url];
-    const fam = { "Soldadura exotérm.":"Soldadura exotérmica" }[r.competencia_familia] || r.competencia_familia;
-    if (fam && fam !== "En ninguno") cp["Familia"] = fam;
-    if (r.competencia_participacion && r.competencia_participacion !== "No aplica") cp["Participación"] = r.competencia_participacion;
-    if (r.competencia_precio && r.competencia_precio !== "No aplica") cp["Precio relativo"] = r.competencia_precio;
-    if (r.competencia_motivo && r.competencia_motivo !== "No aplica") cp["Motivo"] = r.competencia_motivo;
-    if (!calzar(r.competencia_quien, COMPETIDORES)) cp["Competidor nuevo"] = r.competencia_quien;
-    try { await S.mcp.callTool(NOTION,"notion-create-pages",{ parent:{ data_source_id: DS.compPdV }, pages:[{ properties: cp }]}); } catch(_){}
-  }
-  return { ok:true };
-}
-function pendientesDe(v){
-  const r = v.respuestas;
-  return CUESTIONARIO.filter(p => p.obl && aplica(p,r) && !r[p.id])
-    .concat(v.especiales.filter(e => !r["esp_"+e.i]));
-}
-
-async function cerrar(){
-  limpiarChips();
-  const faltan = pendientesDe(S.visita).length;
-  S.visita.estado = faltan ? "INCOMPLETA" : "COMPLETA";
-  S.visita.fin = new Date().toISOString();
-  const v = JSON.parse(JSON.stringify(S.visita));
-  pensando(true);
-  const n = await guardarEnNotion(v);
-  await guardarLocal(v);
-  pensando(false);
-
-  const r = v.respuestas;
-  const res = [
-    r.resultado ? "Resultado: " + r.resultado : null,
-    r.contacto ? "Habló con " + r.contacto : null,
-    r.stock_facbsa ? "Stock: " + r.stock_facbsa : null,
-    r.competencia_quien ? "Competencia: " + r.competencia_quien : null,
-    r.proximo_paso ? "Próximo paso: " + r.proximo_paso : null,
-  ].filter(Boolean);
-  burbuja("bot", `*${v.cliente}* — relevamiento ${faltan ? "cerrado con " + faltan + " punto(s) sin contestar" : "completo"}.\n\n` + res.join("\n"));
-  burbuja("sistema", n.ok
-    ? (v.prueba ? "Cargada en Notion como [PRUEBA], en Visitas relevadas." : "Cargada en Notion, en Visitas relevadas.")
-    : n.motivo === "sin-notion"
-      ? "Notion no está conectado en este teléfono. La visita quedó guardada acá."
-      : "No pude escribir en Notion ahora. La visita quedó guardada acá y se puede recargar después.");
-  S.fase = "libre";
-  chips(["Voy a otro cliente",{t:"Por hoy terminé",tenue:true}], t => {
-    if (t === "Por hoy terminé"){ burbuja("bot","Listo. Buen día de calle 👋"); S.fase="libre"; }
-    else pedirCliente();
-  });
-}
-async function guardarLocal(v){
-  if (!S.db) return false;
-  try {
-    const id = v.inicio.replace(/[:.]/g,"-") + "-" + normal(v.cliente).slice(0,24).replace(/ /g,"-");
-    await S.db.collection("visitas").doc(id).set(v);
-    return true;
-  } catch(_){ return false; }
-}
-function cancelar(){
-  limpiarChips();
-  if (!S.visita || S.fase !== "visita"){ burbuja("bot","No hay ninguna visita abierta."); return; }
-  S.visita.estado = "CANCELADA";
-  burbuja("sistema","Visita cancelada. No se cargó nada.");
-  S.fase = "libre";
-  chips(["Otro cliente"], () => pedirCliente());
-}
-
-/* --- comandos --- */
 async function misVisitas(){
   if (!S.db){ burbuja("bot","Las visitas guardadas se leen cuando abrís esta página con tu cuenta de Claude."); return; }
-  pensando(true);
+  pensando(true,"buscando tus visitas…");
   let docs = [];
   try { const r = await S.db.collection("visitas").orderBy("inicio","desc").limit(10).get(); docs = r.docs || r || []; }
   catch(_){ pensando(false); burbuja("bot","No pude leer las visitas guardadas."); return; }
   pensando(false);
-  if (!docs.length){ burbuja("bot","Todavía no relevaste ninguna visita."); return; }
+  if (!docs.length){ burbuja("bot","Todavía no cargaste ninguna visita desde este teléfono."); return; }
   const L = ["*Tus últimas visitas*",""];
   docs.forEach(d => {
     const v = d.data ? d.data() : d, r = v.respuestas || {};
@@ -831,67 +1063,51 @@ async function misVisitas(){
   });
   burbuja("bot", L.join("\n"));
 }
-function ayuda(){
-  burbuja("bot", ["*Cómo se usa*","",
-    "• Decime a quién vas a visitar y te paso la ficha.",
-    "• Al salir, contame todo junto: yo saco lo que puedo y te pregunto lo que falte.",
-    "• Preguntame lo que quieras sobre lo que te compra y lo busco en el reporte:",
-    "    \"¿cuántas jabalinas lleva este año?\", \"¿cuándo fue el último pedido?\",",
-    "    \"¿alguna vez me compró cable?\", \"¿cómo viene contra el año pasado?\".",
-    "• Para dictar, tocá el micrófono de tu teclado.","",
-    "*Atajos:* ficha · desafíos · reporte · otro cliente · mis visitas · cerrar · cancelar"].join("\n"));
-}
 function comando(texto){
   const t = normal(texto);
   if (!t) return false;
-  if (/^(ayuda|help|que puedo hacer)$/.test(t)){ ayuda(); return true; }
+  if (/^(ayuda|help|que podes hacer|que haces)$/.test(t)){ ayuda(); return true; }
   if (/^(mis visitas|visitas|historial)$/.test(t)){ misVisitas(); return true; }
-  if (/^(otro cliente|cambiar cliente|cambiar de cliente|otro)$/.test(t)){ pedirCliente(); return true; }
-  if (/^(quien soy|cambiar vendedor|no soy yo)$/.test(t)){ preguntarQuien(); return true; }
-  if (S.cliente && /^(reporte|ventas|el reporte|las ventas|historial de ventas)$/.test(t)){
-    burbuja("bot", resumenLocal(CLIENTES.indexOf(S.cliente), "")); return true;
+  if (/^(quien soy|cambiar vendedor|no soy yo|soy otro)$/.test(t)){ preguntarQuien(); return true; }
+  if (/^(otro cliente|cambiar cliente|cambiar de cliente)$/.test(t)){
+    S.cliente = null; S.visita = null;
+    barra("Asistente de visitas", S.vendedor || "FACBSA", true);
+    burbuja("bot","Dale. ¿A quién vas a ver ahora?");
+    S.turnos.push({ role:"assistant", content:"¿A quién vas a ver ahora?" });
+    const op = urgentes(3).map(c => c.n);
+    chips(op, x => recibir(x));
+    return true;
   }
-  if (S.fase === "visita"){
+  if (S.cliente){
     if (/^(ficha|la ficha|datos|los datos)$/.test(t)){ burbuja("ficha", armarFicha(S.cliente)); return true; }
-    if (/^(desafios|retos|que tengo que averiguar|pendientes)$/.test(t)){
-      burbuja("bot", S.visita.especiales.length ? textoDesafios(S.visita) : "Esta visita no tiene desafíos especiales: es relevamiento de rutina.");
-      return true;
-    }
-    if (/^(cerrar|cerrar relevamiento|listo|termine)$/.test(t)){ cerrar(); return true; }
-    if (/^(cancelar|cancelar visita)$/.test(t)){ cancelar(); return true; }
+    if (/^(reporte|ventas|el reporte|las ventas)$/.test(t)){ burbuja("bot", resumenLocal(IDX_CLIENTE.get(S.cliente), "")); return true; }
   }
   return false;
 }
 
-/* --- entrada --- */
 async function recibir(texto){
   const t = String(texto||"").trim();
-  if (!t || S.ocupado) return;
+  if (!t) return;
+  /* Una confirmacion pendiente se lleva lo que el vendedor escriba. */
+  if (S.confirmar){
+    const f = S.confirmar; S.confirmar = null; limpiarChips();
+    burbuja("yo", t);
+    f({ ok: /^(si|s|dale|ok|mandalo|cargalo|guardalo|confirmo|va)$/.test(normal(t)), texto:t });
+    return;
+  }
+  if (S.ocupado) return;
+  if (!S.vendedor){ burbuja("yo", t); const v = calzar(t, VENDEDORES); if (v) elegirVendedor(v); else preguntarQuien(); return; }
   S.ocupado = true;
   try {
+    limpiarChips();
     burbuja("yo", t);
     if (comando(t)) return;
-    /* Una pregunta sobre el reporte se contesta aunque estemos relevando. */
-    if (S.cliente && esConsulta(t)){
-      await consultar(t);
-      if (S.fase === "visita" && S.visita && S.visita.estado === "EN_CURSO") siguiente();
-      return;
-    }
-    if (S.fase === "quien"){
-      const v = calzar(t, VENDEDORES);
-      if (v) elegirVendedor(v);
-      else { burbuja("bot","No te tengo en la lista de vendedores habilitados. Tocá tu nombre:"); chips(VENDEDORES, x => elegirVendedor(x)); }
-      return;
-    }
-    if (S.fase === "cliente"){ resolverCliente(t); return; }
-    if (S.fase === "visita"){ await turno(t); return; }
-    // fase libre
-    const cands = buscarClientes(limpiarPedido(t));
-    if (cands.length){ S.fase = "cliente"; resolverCliente(t); }
-    else { burbuja("bot","¿Vas a visitar a alguien? Decime el nombre."); S.fase = "cliente"; }
+    if (S.modo === "agente") await agente(t);
+    else turnoGuion(t);
   } finally { S.ocupado = false; }
 }
 
+/* --- compositor --- */
 const entrada = $("#entrada");
 function enviar(){
   const t = entrada.value.trim(); if (!t) return;
@@ -914,13 +1130,11 @@ $("#dictar").addEventListener("click", () => {
   }
 });
 
-/* --- Notion en vivo --- */
+/* --- Notion en vivo: el cuestionario y los competidores mandan desde ahi --- */
 async function cargarDeNotion(){
   if (!S.mcp) return;
   try {
-    const r = await S.mcp.callTool(NOTION,"notion-query-data-sources",
-      { data:{ mode:"rows", data_source_url:DS.preguntas, limit:40 } }, { cache:{ staleTime:60000 } });
-    const rows = (r.payload && r.payload.results) || [];
+    const rows = await filasNotion(DS.preguntas, 40);
     const activas = rows.filter(x => x["Activa"] === "__YES__" && x["Identificador"]);
     if (activas.length >= 5){
       CUESTIONARIO = activas.map(x => ({
@@ -929,21 +1143,18 @@ async function cargarDeNotion(){
         opciones: (x["Opciones"]||"").split(/<br\s*\/?>|\r?\n/i).map(s=>s.trim()).filter(Boolean),
         obl: x["Obligatoria"] === "__YES__",
         omite: /competencia_(familia|participacion|precio|motivo)/.test(x["Identificador"]||""),
-        busca: x["Qué busca en el audio"] || x["Pregunta"],
       })).filter(p => p.tipo !== "opciones" || p.opciones.length).sort((a,b)=>a.orden-b.orden);
       S.notionOk = true;
     }
   } catch(_){}
   try {
-    const r = await S.mcp.callTool(NOTION,"notion-query-data-sources",
-      { data:{ mode:"rows", data_source_url:DS.competidor, limit:40 } }, { cache:{ staleTime:300000 } });
-    const rows = (r.payload && r.payload.results) || [];
+    const rows = await filasNotion(DS.competidor, 40);
     const nombres = rows.map(x => x["Competidor"]).filter(Boolean);
-    if (nombres.length) { COMPETIDORES = nombres; S.notionOk = true; }
+    if (nombres.length){ COMPETIDORES = nombres; S.notionOk = true; }
   } catch(_){}
 }
 
-/* --- boot --- */
+/* --- arranque --- */
 saludar();
 
 (async () => {
@@ -958,12 +1169,16 @@ saludar();
   S.sample = sample; S.db = db; S.mcp = mcp;
   if (sample){
     const lim = await sample.limits().catch(()=>null);
-    S.tools = !!(lim && lim.tools && lim.tools.maxCount >= 3);
+    S.tools = (lim && lim.tools && lim.tools.maxCount) || 0;
+    if (S.tools >= 3) S.modo = "agente";
   }
   if (mcp) await cargarDeNotion();
   const faltan = [];
-  if (!sample) faltan.push("el agente");
+  if (S.modo !== "agente") faltan.push("el agente");
   if (!mcp) faltan.push("Notion");
   if (faltan.length)
-    burbuja("sistema", "No pude conectar " + faltan.join(" ni ") + " en este teléfono. El relevamiento funciona igual, pregunta por pregunta, y queda guardado acá.");
+    burbuja("sistema", "No pude conectar " + faltan.join(" ni ") +
+      " en este teléfono. Sigo igual, pero con el relevamiento pregunta por pregunta y sin escribir en Notion.");
+  else if (S.tools < 6)
+    burbuja("sistema", `Este teléfono me deja usar ${S.tools} herramientas de las 6. Puedo leer la ficha y el reporte, pero no escribir en Notion.`);
 })();
