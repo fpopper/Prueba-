@@ -139,7 +139,7 @@ function preguntasEspeciales(c){
 /* --- estado --- */
 const S = {
   vendedor:null, fase:"quien", cliente:null, visita:null, candidatos:null,
-  mcp:null, sample:null, db:null, notionOk:false, ocupado:false, ultimoDia:null,
+  mcp:null, sample:null, db:null, tools:false, notionOk:false, ocupado:false, ultimoDia:null,
 };
 const $ = s => document.querySelector(s);
 const el = (t,c,x) => { const e=document.createElement(t); if(c)e.className=c; if(x!==undefined)e.textContent=x; return e; };
@@ -247,6 +247,251 @@ function urgentes(n){
     .sort((a,b) => prioridad(a)-prioridad(b) || b.f12-a.f12).slice(0,n);
 }
 
+/* ===========================================================================
+   EL REPORTE COMERCIAL
+
+   El vendedor pregunta en castellano, el codigo va a las filas de facturacion
+   de ese cliente y las responde. Claude no ve el reporte: lo consulta con
+   herramientas que corren aca, en la pagina, con los numeros de verdad.
+
+   Fila: [mesIdx, cliIdx, artIdx, cantidad, pesos, usd, dia, cbteIdx, nro, kilos]
+=========================================================================== */
+const VENTAS = JSON.parse(document.getElementById("datos-ventas").textContent);
+const V_MES = VENTAS.mes, V_RUB = VENTAS.rub, V_ART = VENTAS.art, V_CBTE = VENTAS.cbte;
+const V_DESDE = V_MES[0], V_HASTA = V_MES[V_MES.length-1], V_CORTE = VENTAS.corte;
+
+const V_IDX = (() => {
+  const m = new Map();
+  for (let i = 0; i < VENTAS.f.length; i++){
+    const c = VENTAS.f[i][1], a = m.get(c);
+    if (a) a.push(i); else m.set(c, [i]);
+  }
+  return m;
+})();
+
+/* Como le dice el vendedor a cada familia. */
+const SINONIMOS = {
+  jabalina:"JABALINAS IRAM 2309", jabalinas:"JABALINAS IRAM 2309",
+  tomacable:"TOMA STANDARD", tomacables:"TOMA STANDARD", toma:"TOMA STANDARD", tomas:"TOMA STANDARD",
+  conector:"CONECTORES", conectores:"CONECTORES",
+  pararrayo:"PARARRAYOS", pararrayos:"PARARRAYOS",
+  soldadura:"SOLDADURA CU-AL-TERM", exotermica:"SOLDADURA CU-AL-TERM", cadweld:"SOLDADURA CU-AL-TERM",
+  conjunto:"CONJUNTOS", conjuntos:"CONJUNTOS",
+  varilla:"VARILLAS DE ACERO COBRE", varillas:"VARILLAS DE ACERO COBRE",
+};
+const RUBROS_CABLE = ["ALAMBRES AW","ALAMBRES CW FINOS","CONDUWELD 20 %","CONDUWELD 30 %"];
+
+function filtroProducto(texto){
+  const q = normal(texto);
+  if (!q) return { ok:true, pasa:()=>true, etiqueta:"todo" };
+  const palabras = q.split(" ").filter(Boolean);
+  for (const w of palabras){
+    if (SINONIMOS[w]){
+      const rub = SINONIMOS[w];
+      return { ok:true, etiqueta:rub, pasa:r => V_RUB[V_ART[r[2]][1]] === rub };
+    }
+  }
+  if (/\b(cable|cables|conduweld|alambre|alambres|2467|aw|cw)\b/.test(q))
+    return { ok:true, etiqueta:"cable (AW, CW y Conduweld)", pasa:r => RUBROS_CABLE.includes(V_RUB[V_ART[r[2]][1]]) };
+  const rub = V_RUB.find(x => normal(x).includes(q));
+  if (rub) return { ok:true, etiqueta:rub, pasa:r => V_RUB[V_ART[r[2]][1]] === rub };
+  const hayArt = V_ART.some(a => normal(a[0]).includes(q));
+  if (hayArt) return { ok:true, etiqueta:texto, pasa:r => normal(V_ART[r[2]][0]).includes(q) };
+  return { ok:false, etiqueta:texto };
+}
+
+function filasDe(iCli, desde, hasta, filtro){
+  const idx = V_IDX.get(iCli) || [];
+  const d = desde || V_DESDE, h = hasta || V_HASTA;
+  const out = [];
+  for (const k of idx){
+    const r = VENTAS.f[k], m = V_MES[r[0]];
+    if (m < d || m > h) continue;
+    if (filtro && !filtro.pasa(r)) continue;
+    out.push(r);
+  }
+  return out;
+}
+const fechaDe = r => `${V_MES[r[0]]}-${String(r[6]).padStart(2,"0")}`;
+const periodoPedido = (a) => {
+  const d = /^\d{4}-\d{2}$/.test(String(a.desde||"")) ? a.desde : V_DESDE;
+  const h = /^\d{4}-\d{2}$/.test(String(a.hasta||"")) ? a.hasta : V_HASTA;
+  return d <= h ? [d,h] : [h,d];
+};
+const sinProducto = (f) => ({
+  error: `No tengo "${f.etiqueta}" en el reporte de este cliente.`,
+  familias: V_RUB.filter(x => x !== "(sin rubro)"),
+});
+
+/* --- las tres consultas --- */
+function qPorMes(iCli, a){
+  const [d,h] = periodoPedido(a);
+  const f = filtroProducto(a.producto || "");
+  if (!f.ok) return sinProducto(f);
+  const fil = filasDe(iCli, d, h, f);
+  const porMes = new Map();
+  for (const r of fil){
+    const m = V_MES[r[0]], e = porMes.get(m) || {mes:m, pesos:0, usd:0, cbtes:new Set()};
+    e.pesos += r[4]; e.usd += r[5]; e.cbtes.add(r[8]); porMes.set(m, e);
+  }
+  const filas = [...porMes.values()].sort((x,y)=>x.mes<y.mes?-1:1)
+    .map(e => ({ mes:e.mes, pesos:Math.round(e.pesos), usd:Math.round(e.usd), comprobantes:e.cbtes.size }));
+  const corte = filas.length > 36 ? filas.slice(-36) : filas;
+  return {
+    cliente: CLIENTES[iCli].n, producto: f.etiqueta, periodo: `${d} a ${h}`,
+    meses_con_compra: filas.length,
+    total_pesos: Math.round(fil.reduce((s,r)=>s+r[4],0)),
+    total_usd: Math.round(fil.reduce((s,r)=>s+r[5],0)),
+    serie: corte,
+    nota: filas.length > 36 ? "Se devolvieron los ultimos 36 meses con compra." : undefined,
+  };
+}
+function qPorProducto(iCli, a){
+  const [d,h] = periodoPedido(a);
+  const f = filtroProducto(a.producto || "");
+  if (!f.ok) return sinProducto(f);
+  const porArticulo = String(a.nivel||"").toLowerCase().startsWith("art");
+  const fil = filasDe(iCli, d, h, f);
+  const g = new Map();
+  for (const r of fil){
+    const k = porArticulo ? V_ART[r[2]][0] : V_RUB[V_ART[r[2]][1]];
+    const e = g.get(k) || {nombre:k, unidades:0, kilos:0, pesos:0, usd:0, ultima:""};
+    e.unidades += r[3]; e.kilos += r[9]; e.pesos += r[4]; e.usd += r[5];
+    const fe = fechaDe(r); if (fe > e.ultima) e.ultima = fe;
+    g.set(k, e);
+  }
+  const lista = [...g.values()].sort((x,y)=>y.pesos-x.pesos).slice(0,12).map(e => ({
+    nombre:e.nombre, unidades:Math.round(e.unidades*100)/100, kilos:Math.round(e.kilos),
+    pesos:Math.round(e.pesos), usd:Math.round(e.usd), ultima:e.ultima }));
+  return {
+    cliente: CLIENTES[iCli].n, nivel: porArticulo ? "articulo" : "familia",
+    filtro: f.etiqueta, periodo: `${d} a ${h}`,
+    total_pesos: Math.round(fil.reduce((s,r)=>s+r[4],0)),
+    items: lista,
+    nota: !lista.length ? `Este cliente no compro ${f.etiqueta} en ese periodo.`
+        : g.size > 12 ? `Hay ${g.size}; se devolvieron los 12 mas grandes.` : undefined,
+  };
+}
+function qComprobantes(iCli, a){
+  const [d,h] = periodoPedido(a);
+  const f = filtroProducto(a.producto || "");
+  if (!f.ok) return sinProducto(f);
+  const fil = filasDe(iCli, d, h, f);
+  const g = new Map();
+  for (const r of fil){
+    const k = r[7] + "-" + r[8];
+    const e = g.get(k) || {fecha:fechaDe(r), tipo:V_CBTE[r[7]], numero:r[8], pesos:0, usd:0, lineas:[]};
+    e.pesos += r[4]; e.usd += r[5];
+    e.lineas.push({ articulo:V_ART[r[2]][0], cantidad:Math.round(r[3]*100)/100, pesos:Math.round(r[4]) });
+    g.set(k, e);
+  }
+  const lim = Math.max(1, Math.min(Number(a.limite) || 6, 12));
+  const lista = [...g.values()].sort((x,y)=> x.fecha<y.fecha?1:-1).slice(0, lim).map(e => ({
+    ...e, pesos:Math.round(e.pesos), usd:Math.round(e.usd),
+    lineas: e.lineas.sort((p,q)=>q.pesos-p.pesos).slice(0,6) }));
+  return { cliente: CLIENTES[iCli].n, filtro: f.etiqueta, periodo: `${d} a ${h}`,
+           comprobantes_en_el_periodo: g.size, ultimos: lista };
+}
+
+const PERIODO = { type:"string", description:"Mes inicial en formato AAAA-MM. Si se omite, desde el principio del reporte." };
+function herramientas(iCli){
+  return [
+    { name:"ventas_por_mes",
+      description:"Facturacion mes a mes de ESTE cliente, en pesos y en dolares, con cuantos comprobantes hubo. Sirve para 'cuanto compro', 'como viene', 'cuando compro', comparar periodos o ver si cayo. Se puede filtrar por producto o familia.",
+      inputSchema:{ type:"object", properties:{
+        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
+        producto:{ type:"string", description:"Familia o producto: jabalinas, tomacables, cable, conectores, pararrayos, soldadura, conjuntos, varillas, o parte del nombre de un articulo. Vacio = todo." } } },
+      execute: a => qPorMes(iCli, a||{}) },
+    { name:"ventas_por_producto",
+      description:"Que le compro ESTE cliente en un periodo, ordenado de mayor a menor: unidades, kilos, pesos, dolares y la fecha de la ultima compra de cada uno. nivel='familia' agrupa por familia, nivel='articulo' por articulo. Sirve para 'que compra', 'cuantas jabalinas lleva', 'nunca me compro cable?'.",
+      inputSchema:{ type:"object", properties:{
+        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
+        nivel:{ type:"string", enum:["familia","articulo"], description:"Por defecto familia." },
+        producto:{ type:"string", description:"Filtro opcional, igual que en ventas_por_mes." } } },
+      execute: a => qPorProducto(iCli, a||{}) },
+    { name:"comprobantes",
+      description:"Las ultimas facturas de ESTE cliente con su fecha, tipo, numero, importe y las lineas mas grandes de cada una. Sirve para 'cuando fue el ultimo pedido', 'que se llevo la ultima vez', 'cada cuanto compra'.",
+      inputSchema:{ type:"object", properties:{
+        desde:PERIODO, hasta:{...PERIODO, description:"Mes final en formato AAAA-MM."},
+        limite:{ type:"number", description:"Cuantas devolver, 1 a 12. Por defecto 6." },
+        producto:{ type:"string", description:"Filtro opcional, igual que en ventas_por_mes." } } },
+      execute: a => qComprobantes(iCli, a||{}) },
+  ];
+}
+
+/* --- cuando el vendedor pregunta en vez de contestar --- */
+/* El \b despues de un prefijo como "cuant" nunca casa: "cuanto" sigue con letra.
+   Por eso cada prefijo lleva su propio \w*. */
+const INTERROG = /^(que|cuant\w*|cuand\w*|cual\w*|como|donde|quien\w*|porque|hay|tiene\w*|tenes|tenemos|alguna vez|nunca)\b/;
+const PEDIDO = /\b(mostra|mostrame|pasa|pasame|decime|deci|fijate|busca|buscame|revisa|mira|mirame|consulta|dame|traeme)\b/;
+const VOCAB = /\b(compr\w*|factur\w*|vent\w*|vendi\w*|pedid\w*|comprobante\w*|factura\w*|remit\w*|jabalin\w*|tomacable\w*|toma\w*|cable\w*|conduweld|alambre\w*|conector\w*|pararrayo\w*|soldadura|exotermica|conjunto\w*|varilla\w*|kilo\w*|unidad\w*|mes|meses|trimestre|semestre|ano|anio|historic\w*|historial|promedio|ranking|ultima vez|ultimo pedido|dolar\w*|plata|importe|monto|cuanto lleva|cuanto va)\b/;
+function esConsulta(t){
+  const crudo = String(t||"").trim();
+  const b = normal(crudo);
+  if (!b) return false;
+  const parece = /\?\s*$/.test(crudo) || INTERROG.test(b) || PEDIDO.test(b);
+  return parece && VOCAB.test(b);
+}
+
+function resumenLocal(iCli, pregunta){
+  const f = filtroProducto(pregunta);
+  const usar = f.ok && f.etiqueta !== "todo" ? f : null;
+  const serie = qPorMes(iCli, usar ? {desde:V_MES[V_MES.length-12], producto:usar.etiqueta} : {desde:V_MES[V_MES.length-12]});
+  const prod = qPorProducto(iCli, {desde:V_MES[V_MES.length-12]});
+  const L = [`*${CLIENTES[iCli].n} — últimos 12 meses del reporte*`];
+  if (usar) L.push(`Filtrado por: ${usar.etiqueta}`);
+  L.push(`Total ${pesos(serie.total_pesos)} (US$ ${uds(serie.total_usd)}) en ${serie.meses_con_compra} meses con compra.`, "");
+  serie.serie.slice(-12).forEach(m => L.push(`• ${m.mes}: ${pesos(m.pesos)}`));
+  if (!usar && prod.items.length){ L.push("", "*Por familia:*");
+    prod.items.slice(0,6).forEach(i => L.push(`• ${i.nombre}: ${pesos(i.pesos)}${i.unidades?` · ${uds(i.unidades)} u.`:""} · última ${fecha(i.ultima)}`)); }
+  return L.join("\n");
+}
+
+async function consultar(texto){
+  const iCli = CLIENTES.indexOf(S.cliente);
+  if (iCli < 0){ burbuja("bot","Primero decime de qué cliente, y te busco en el reporte."); return; }
+  if (!S.sample || !S.tools){
+    burbuja("bot", resumenLocal(iCli, texto));
+    if (!S.sample) burbuja("sistema","Sin el agente no puedo interpretar la pregunta, así que te muestro el reporte del cliente tal cual.");
+    return;
+  }
+  const c = S.cliente;
+  const prompt =
+`Sos el asistente de la fuerza de ventas de FACBSA, fábrica argentina de conductores bimetálicos para puesta a tierra.
+El vendedor está por visitar (o acaba de visitar) a ${c.n} y te pregunta algo sobre lo que ESE cliente le compra a FACBSA.
+
+Tenés herramientas que leen el reporte comercial de ese cliente. Usalas siempre: no inventes ni estimes un solo número, y no contestes de memoria.
+El reporte va de ${V_DESDE} a ${V_HASTA} (corte ${V_CORTE}). Los últimos 12 meses son ${V_MES[V_MES.length-12]} a ${V_HASTA}.
+Familias de producto: ${V_RUB.filter(x=>x!=="(sin rubro)").join(", ")}.
+
+Ya sabés esto de la ficha, no hace falta que lo consultes: facturación 12 meses ${pesos(c.f12)}, ${c.rank?`puesto ${c.rank} del ranking, `:""}última compra ${fecha(c.ult)}${c.dias!==null?` (hace ${c.dias} días)`:""}, segmento ${c.seg||"-"}, canal ${c.can||"-"}.
+
+Cómo contestar:
+- De 1 a 4 líneas, en castellano rioplatense, como le hablás a un vendedor parado en la vereda. Sin preámbulos.
+- Siempre con la unidad: pesos, unidades o kilos, y el período al que corresponde.
+- Si la comparación cruza más de un año calendario, aclarálo o pasá los números a dólares: con la inflación, comparar pesos de años distintos engaña.
+- Si el reporte no tiene lo que pregunta, decilo derecho.
+
+Pregunta del vendedor: """${texto}"""`;
+  const burbujaRta = burbuja("bot", "…");
+  let txt = "";
+  try {
+    const r = await S.sample(prompt, { modelTier:"default", tools:herramientas(iCli) });
+    txt = (r && r.text || "").trim();
+  } catch(e){
+    const cod = e && e.code;
+    burbujaRta.remove();
+    if (cod === "not_granted"){ S.sample = null; burbuja("bot", resumenLocal(iCli, texto)); return; }
+    if (cod === "tools_unavailable"){ S.tools = false; burbuja("bot", resumenLocal(iCli, texto)); return; }
+    if (cod === "rate_limited"){ burbuja("bot","Me quedé sin crédito por ahora. Te paso el reporte crudo:"); burbuja("bot", resumenLocal(iCli, texto)); return; }
+    burbuja("bot","No pude consultar el reporte ahora. Te paso lo que tengo:");
+    burbuja("bot", resumenLocal(iCli, texto));
+    return;
+  }
+  burbujaRta.remove();
+  burbuja("bot", txt || resumenLocal(iCli, texto));
+}
+
 /* --- cuestionario pendiente --- */
 function aplica(p, r){
   if (!p.omite) return true;
@@ -344,6 +589,7 @@ function abrirCliente(c){
   if (c.prueba) burbuja("sistema","Cliente de prueba. Todo lo que cargues queda marcado [PRUEBA] en Notion y se puede borrar sin tocar un solo dato real.");
   burbuja("ficha", armarFicha(c));
   if (S.visita.especiales.length) burbuja("bot", textoDesafios(S.visita));
+  burbuja("bot","Si querés saber algo más de lo que te compra, preguntámelo y lo busco en el reporte.");
   chips(["Entro ahora","Ya salí, te cuento",{t:"Otro cliente",tenue:true}], t => {
     if (t === "Otro cliente"){ pedirCliente(); return; }
     S.visita.estado = "EN_CURSO";
@@ -589,8 +835,11 @@ function ayuda(){
   burbuja("bot", ["*Cómo se usa*","",
     "• Decime a quién vas a visitar y te paso la ficha.",
     "• Al salir, contame todo junto: yo saco lo que puedo y te pregunto lo que falte.",
+    "• Preguntame lo que quieras sobre lo que te compra y lo busco en el reporte:",
+    "    \"¿cuántas jabalinas lleva este año?\", \"¿cuándo fue el último pedido?\",",
+    "    \"¿alguna vez me compró cable?\", \"¿cómo viene contra el año pasado?\".",
     "• Para dictar, tocá el micrófono de tu teclado.","",
-    "*Atajos:* ficha · desafíos · otro cliente · mis visitas · cerrar · cancelar"].join("\n"));
+    "*Atajos:* ficha · desafíos · reporte · otro cliente · mis visitas · cerrar · cancelar"].join("\n"));
 }
 function comando(texto){
   const t = normal(texto);
@@ -599,6 +848,9 @@ function comando(texto){
   if (/^(mis visitas|visitas|historial)$/.test(t)){ misVisitas(); return true; }
   if (/^(otro cliente|cambiar cliente|cambiar de cliente|otro)$/.test(t)){ pedirCliente(); return true; }
   if (/^(quien soy|cambiar vendedor|no soy yo)$/.test(t)){ preguntarQuien(); return true; }
+  if (S.cliente && /^(reporte|ventas|el reporte|las ventas|historial de ventas)$/.test(t)){
+    burbuja("bot", resumenLocal(CLIENTES.indexOf(S.cliente), "")); return true;
+  }
   if (S.fase === "visita"){
     if (/^(ficha|la ficha|datos|los datos)$/.test(t)){ burbuja("ficha", armarFicha(S.cliente)); return true; }
     if (/^(desafios|retos|que tengo que averiguar|pendientes)$/.test(t)){
@@ -619,6 +871,12 @@ async function recibir(texto){
   try {
     burbuja("yo", t);
     if (comando(t)) return;
+    /* Una pregunta sobre el reporte se contesta aunque estemos relevando. */
+    if (S.cliente && esConsulta(t)){
+      await consultar(t);
+      if (S.fase === "visita" && S.visita && S.visita.estado === "EN_CURSO") siguiente();
+      return;
+    }
     if (S.fase === "quien"){
       const v = calzar(t, VENDEDORES);
       if (v) elegirVendedor(v);
@@ -698,6 +956,10 @@ saludar();
     use("sample").catch(()=>null), use("db").catch(()=>null), use("mcp").catch(()=>null),
   ]);
   S.sample = sample; S.db = db; S.mcp = mcp;
+  if (sample){
+    const lim = await sample.limits().catch(()=>null);
+    S.tools = !!(lim && lim.tools && lim.tools.maxCount >= 3);
+  }
   if (mcp) await cargarDeNotion();
   const faltan = [];
   if (!sample) faltan.push("el agente");

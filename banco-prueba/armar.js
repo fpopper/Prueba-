@@ -9,9 +9,10 @@ import { fileURLToPath } from "node:url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const leer = (f) => fs.readFileSync(path.join(dir, f), "utf8");
 
-const datos = JSON.stringify(JSON.parse(leer("fichas.json"))).replace(/<\//g, "<\\/");
+const json = (f) => JSON.stringify(JSON.parse(leer(f))).replace(/<\//g, "<\\/");
 const html = leer("plantilla.html")
-  .replace("__DATOS__", () => datos)
+  .replace("__DATOS__", () => json("fichas.json"))
+  .replace("__VENTAS__", () => json("ventas.json"))
   .replace("__CODIGO__", () => leer("codigo.js"));
 
 const salida = path.join(dir, "asistente-visitas.html");
