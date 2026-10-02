@@ -1,200 +1,115 @@
 <title>Asistente de visitas FACBSA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap">
 <style>
-/* Una sola columna a ancho de telefono: barra fija arriba, hilo de mensajes que
-   scrollea, compositor fijo abajo. El cobre del conductor bimetalico sobre acero. */
+/* Un solo hilo de chat, como WhatsApp, a ancho de telefono. El cobre del
+   conductor bimetalico sobre el acero: entrantes en acero, salientes en cobre. */
 :root{
-  --cobre:#A8521C; --cobre-claro:#C8702F; --cobre-tenue:#F6EBE2;
-  --fondo:#F4F2F0; --panel:#FFFFFF; --panel-2:#ECE9E6; --borde:#DDD8D3; --borde-2:#C5BEB7;
+  --cobre:#A8521C; --cobre-claro:#C8702F; --cobre-tenue:#F6EBE2; --cobre-burbuja:#F3DFCE;
+  --fondo:#EDE9E4; --panel:#FFFFFF; --panel-2:#E3DED8; --borde:#DCD6CF; --borde-2:#C3BBB2;
   --tinta:#17130F; --tinta-2:#4A423B; --tenue:#847970;
-  --ok:#2E6B38; --atencion:#8A6410; --critico:#9E2B20; --info:#2B5577;
-  --sombra:0 1px 2px rgba(23,19,15,.06), 0 2px 10px rgba(23,19,15,.05);
-  --r:12px;
+  --ok:#2E6B38; --atencion:#8A6410; --critico:#9E2B20;
+  --sombra:0 1px 1px rgba(23,19,15,.08);
+  --r:14px;
   --display:"Archivo","Helvetica Neue",Arial,sans-serif;
-  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --cobre:#D98A4F; --cobre-claro:#E8A062; --cobre-tenue:#2F2117;
-    --fondo:#15120F; --panel:#1E1A16; --panel-2:#272119; --borde:#332C25; --borde-2:#463D33;
+    --cobre:#D98A4F; --cobre-claro:#E8A062; --cobre-tenue:#2F2117; --cobre-burbuja:#3A2718;
+    --fondo:#14110E; --panel:#1F1B17; --panel-2:#2A241D; --borde:#332C25; --borde-2:#463D33;
     --tinta:#F2EDE8; --tinta-2:#BCB2A8; --tenue:#8A8077;
-    --ok:#7FB889; --atencion:#D9AE4E; --critico:#E08076; --info:#79AEDA;
-    --sombra:0 1px 2px rgba(0,0,0,.4), 0 2px 12px rgba(0,0,0,.3);
+    --ok:#7FB889; --atencion:#D9AE4E; --critico:#E08076;
+    --sombra:0 1px 2px rgba(0,0,0,.45);
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
-  --cobre:#D98A4F; --cobre-claro:#E8A062; --cobre-tenue:#2F2117;
-  --fondo:#15120F; --panel:#1E1A16; --panel-2:#272119; --borde:#332C25; --borde-2:#463D33;
+  --cobre:#D98A4F; --cobre-claro:#E8A062; --cobre-tenue:#2F2117; --cobre-burbuja:#3A2718;
+  --fondo:#14110E; --panel:#1F1B17; --panel-2:#2A241D; --borde:#332C25; --borde-2:#463D33;
   --tinta:#F2EDE8; --tinta-2:#BCB2A8; --tenue:#8A8077;
-  --ok:#7FB889; --atencion:#D9AE4E; --critico:#E08076; --info:#79AEDA;
-  --sombra:0 1px 2px rgba(0,0,0,.4), 0 2px 12px rgba(0,0,0,.3);
+  --ok:#7FB889; --atencion:#D9AE4E; --critico:#E08076;
+  --sombra:0 1px 2px rgba(0,0,0,.45);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:var(--fondo);color:var(--tinta);font-family:var(--display);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--fondo);color:var(--tinta);font-family:var(--display);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
 .app{display:flex;flex-direction:column;height:100%;max-width:620px;margin:0 auto;background:var(--fondo)}
 
-/* barra */
-.barra{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:10px;
-  padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--borde);min-height:54px}
-.barra h1{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;flex:1;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.barra .sub{display:block;font-size:11.5px;font-weight:400;color:var(--tenue);letter-spacing:0}
-.volver{border:none;background:transparent;color:var(--cobre);font:inherit;font-weight:600;font-size:14px;
-  padding:6px 2px;cursor:pointer;flex:0 0 auto}
-.pest{display:flex;gap:2px;background:var(--panel-2);border-radius:9px;padding:2px}
-.pest button{border:none;background:transparent;border-radius:7px;padding:5px 11px;font:inherit;font-size:12.5px;
-  font-weight:600;color:var(--tinta-2);cursor:pointer;min-height:30px}
-.pest button[aria-pressed="true"]{background:var(--panel);color:var(--cobre);box-shadow:var(--sombra)}
+/* barra de arriba, como la cabecera de un chat */
+.barra{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:11px;
+  padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--borde)}
+.ava{flex:0 0 auto;width:38px;height:38px;border-radius:50%;background:var(--cobre);color:#fff;
+  display:grid;place-items:center;font-weight:700;font-size:15px;letter-spacing:.02em}
+.quien-barra{min-width:0;flex:1}
+.barra h1{margin:0;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barra .sub{display:block;font-size:11.5px;color:var(--tenue);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barra .sub.vivo::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--ok);margin-right:5px;vertical-align:1px}
 
-/* cuerpo */
-.cuerpo{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:14px 16px 20px;display:flex;flex-direction:column;gap:10px}
-.vista[hidden]{display:none!important}
-.vista{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0}
+/* el hilo */
+.cuerpo{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+.hilo{display:flex;flex-direction:column;gap:7px;padding:14px 12px 6px}
+.msg{max-width:85%;padding:8px 11px;border-radius:var(--r);box-shadow:var(--sombra);
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.bot,.msg.ficha{align-self:flex-start;background:var(--panel);border-top-left-radius:4px}
+.msg.yo{align-self:flex-end;background:var(--cobre-burbuja);border-top-right-radius:4px}
+.msg.ficha{max-width:95%;font-size:14px;line-height:1.5}
+.msg.ficha b{font-weight:700}
+.msg.ficha .reng-tit{display:block;font-size:15.5px;margin-bottom:1px}
+.msg.sistema{align-self:center;max-width:94%;background:var(--cobre-tenue);border:1px solid var(--borde);
+  color:var(--tinta-2);font-size:12.5px;text-align:center;box-shadow:none;padding:7px 11px;border-radius:9px}
+.msg .hora{display:block;text-align:right;font-size:10.5px;color:var(--tenue);margin-top:2px;letter-spacing:.02em}
+.dia{align-self:center;background:var(--panel-2);color:var(--tenue);font-size:11px;font-weight:600;
+  padding:3px 11px;border-radius:9px;letter-spacing:.04em;text-transform:uppercase}
 
-/* arranque */
-.hola{padding:22px 0 6px}
-.hola h2{margin:0 0 6px;font-size:22px;font-weight:700;letter-spacing:-.02em;text-wrap:balance}
-.hola p{margin:0;color:var(--tinta-2);font-size:14px;max-width:46ch}
-.quien{display:flex;flex-direction:column;gap:8px;margin-top:18px}
-.quien button{display:flex;align-items:center;gap:12px;text-align:left;background:var(--panel);border:1px solid var(--borde);
-  border-radius:var(--r);padding:13px 15px;font:inherit;color:var(--tinta);cursor:pointer;box-shadow:var(--sombra);min-height:52px}
-.quien button:hover,.quien button:focus-visible{border-color:var(--cobre)}
-.quien .ini{flex:0 0 auto;width:34px;height:34px;border-radius:50%;background:var(--cobre-tenue);color:var(--cobre);
-  display:grid;place-items:center;font-weight:700;font-size:13px;font-family:var(--mono)}
-.quien .nom{flex:1;min-width:0;font-weight:600;font-size:14.5px}
-.quien .cant{font-family:var(--mono);font-size:12px;color:var(--tenue);font-variant-numeric:tabular-nums}
+/* botonera de respuestas rapidas */
+.opciones{align-self:flex-start;display:flex;flex-wrap:wrap;gap:6px;max-width:95%;margin:1px 0 3px}
+.opciones button{border:1px solid var(--cobre);background:var(--panel);color:var(--cobre);
+  border-radius:16px;padding:7px 13px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;min-height:36px}
+.opciones button.tenue{border-color:var(--borde-2);color:var(--tinta-2);font-weight:500}
 
-/* buscador + lista */
-.buscar{position:relative}
-.buscar input{width:100%;padding:11px 14px;border:1px solid var(--borde-2);border-radius:10px;background:var(--panel);
-  color:var(--tinta);font:inherit;font-size:16px;min-height:46px}
-.buscar input:focus-visible{outline:2px solid var(--cobre);outline-offset:1px;border-color:var(--cobre)}
-.filtros{display:flex;gap:6px;flex-wrap:wrap}
-.chip{border:1px solid var(--borde-2);background:var(--panel);color:var(--tinta-2);border-radius:20px;
-  padding:5px 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;min-height:32px}
-.chip[aria-pressed="true"]{background:var(--cobre);border-color:var(--cobre);color:#fff}
-.lista{display:flex;flex-direction:column;gap:7px}
-.cli{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--borde);border-left:3px solid var(--borde);
-  border-radius:var(--r);padding:11px 13px;font:inherit;color:var(--tinta);cursor:pointer;box-shadow:var(--sombra)}
-.cli:hover,.cli:focus-visible{border-color:var(--cobre);border-left-color:var(--cobre)}
-.cli.rojo{border-left-color:var(--critico)}
-.cli.ambar{border-left-color:var(--atencion)}
-.cli .l1{display:flex;align-items:baseline;gap:8px}
-.cli .nombre{flex:1;min-width:0;font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cli .l2{display:flex;align-items:center;gap:7px;margin-top:3px;font-size:12px;color:var(--tenue);flex-wrap:wrap}
-.cli .l3{margin-top:5px;font-size:12.5px;color:var(--critico);font-weight:500}
-.cli .l3.ambar{color:var(--atencion)}
-.seg{font-family:var(--mono);font-size:10.5px;font-weight:700;border:1px solid currentColor;border-radius:20px;
-  padding:0 6px;line-height:17px;flex:0 0 auto}
-.seg.A{color:var(--ok)} .seg.B{color:var(--info)} .seg.C{color:var(--atencion)}
-.plata{font-family:var(--mono);font-size:12px;color:var(--tinta-2);font-variant-numeric:tabular-nums;flex:0 0 auto}
-.vacio{color:var(--tenue);text-align:center;padding:36px 10px;font-size:13.5px}
-
-/* chat */
-.hilo{display:flex;flex-direction:column;gap:9px;padding-bottom:4px}
-.msg{max-width:88%;padding:10px 13px;border-radius:14px;font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:var(--sombra)}
-.msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--borde);border-bottom-left-radius:4px}
-.msg.yo{align-self:flex-end;background:var(--cobre);color:#fff;border-bottom-right-radius:4px;box-shadow:none}
-.msg.ficha{align-self:stretch;max-width:100%;background:var(--panel);border:1px solid var(--borde-2);
-  border-left:3px solid var(--cobre);font-family:var(--mono);font-size:12.5px;line-height:1.65;border-radius:var(--r)}
-.msg.ficha b{font-family:var(--display);font-size:14px}
-.msg.sistema{align-self:center;max-width:100%;background:transparent;box-shadow:none;color:var(--tenue);
-  font-size:12px;text-align:center;padding:2px}
-.pensando{align-self:flex-start;color:var(--tenue);font-size:13px;padding:4px 2px;display:flex;gap:5px;align-items:center}
-.pensando i{width:5px;height:5px;border-radius:50%;background:var(--tenue);animation:lat 1.1s infinite}
-.pensando i:nth-child(2){animation-delay:.15s} .pensando i:nth-child(3){animation-delay:.3s}
-@keyframes lat{0%,60%,100%{opacity:.25} 30%{opacity:1}}
+.pensando{align-self:flex-start;display:flex;align-items:center;gap:4px;background:var(--panel);
+  border-radius:var(--r);border-top-left-radius:4px;padding:11px 13px;box-shadow:var(--sombra)}
+.pensando i{width:6px;height:6px;border-radius:50%;background:var(--tenue);animation:lat 1.1s infinite}
+.pensando i:nth-child(2){animation-delay:.18s}
+.pensando i:nth-child(3){animation-delay:.36s}
+@keyframes lat{0%,60%,100%{opacity:.3}30%{opacity:1}}
 @media (prefers-reduced-motion:reduce){.pensando i{animation:none;opacity:.6}}
-
-/* botonera */
-.opciones{display:flex;flex-wrap:wrap;gap:6px;align-self:flex-start;max-width:100%}
-.opciones button{background:var(--panel);border:1px solid var(--cobre);color:var(--cobre);border-radius:20px;
-  padding:7px 13px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;min-height:38px}
-.opciones button:hover,.opciones button:focus-visible{background:var(--cobre);color:#fff}
 
 /* compositor */
 .comp{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--borde);
-  padding:9px 12px calc(9px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;align-items:flex-end}
+  padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));display:flex;gap:7px;align-items:flex-end}
 .comp textarea{flex:1;min-width:0;resize:none;border:1px solid var(--borde-2);border-radius:20px;background:var(--fondo);
-  color:var(--tinta);font:inherit;font-size:16px;padding:10px 14px;max-height:120px;min-height:44px;line-height:1.4}
+  color:var(--tinta);font:inherit;font-size:16px;padding:10px 14px;max-height:120px;min-height:42px;line-height:1.35}
 .comp textarea:focus-visible{outline:2px solid var(--cobre);outline-offset:1px;border-color:var(--cobre)}
-.comp button{flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:none;background:var(--cobre);color:#fff;
-  font-size:17px;cursor:pointer;display:grid;place-items:center}
+.comp button{flex:0 0 auto;width:42px;height:42px;border-radius:50%;border:1px solid var(--borde-2);
+  background:var(--fondo);color:var(--tinta-2);font-size:17px;cursor:pointer;display:grid;place-items:center}
+.comp button.enviar{border:none;background:var(--cobre);color:#fff;font-size:18px}
 .comp button:disabled{opacity:.4;cursor:default}
-.pista{padding:0 16px 8px;font-size:11.5px;color:var(--tenue);text-align:center}
-.acciones{display:flex;gap:8px;padding:0 16px 10px}
-.acciones button{flex:1;border:1px solid var(--borde-2);background:var(--panel);color:var(--tinta-2);border-radius:10px;
-  padding:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:42px}
-.acciones button.fin{border-color:var(--cobre);color:var(--cobre)}
-
-/* oficina */
-.vis{background:var(--panel);border:1px solid var(--borde);border-radius:var(--r);padding:12px 13px;box-shadow:var(--sombra)}
-.vis h3{margin:0 0 2px;font-size:14.5px;font-weight:600}
-.vis .meta{font-size:12px;color:var(--tenue);display:flex;gap:7px;flex-wrap:wrap;margin-bottom:8px}
-.vis dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13px}
-.vis dt{color:var(--tenue);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;align-self:baseline}
-.vis dd{margin:0;overflow-wrap:anywhere}
-.aviso{background:var(--cobre-tenue);border:1px solid var(--cobre);border-radius:var(--r);padding:11px 13px;
-  font-size:13px;color:var(--tinta);display:flex;gap:9px;align-items:flex-start}
-.aviso b{color:var(--cobre)}
 :focus-visible{outline:2px solid var(--cobre);outline-offset:2px}
 </style>
 
 <div class="app">
   <header class="barra">
-    <button class="volver" id="volver" hidden>‹ Atrás</button>
-    <h1 id="titulo">Asistente de visitas<span class="sub" id="subtitulo">FACBSA</span></h1>
-    <div class="pest" id="pestanas" hidden>
-      <button data-vista="lista" aria-pressed="true">Clientes</button>
-      <button data-vista="oficina" aria-pressed="false">Oficina</button>
+    <div class="ava" id="avatar" aria-hidden="true">FA</div>
+    <div class="quien-barra">
+      <h1 id="titulo">Asistente de visitas</h1>
+      <span class="sub vivo" id="subtitulo">FACBSA · fuerza de ventas</span>
     </div>
   </header>
 
   <div class="cuerpo" id="cuerpo">
-    <section class="vista" id="v-quien">
-      <div class="hola">
-        <h2>¿Quién sos?</h2>
-        <p>Elegí tu nombre para ver tu cartera. Después abrís el cliente que vas a visitar, leés la ficha antes de entrar, y al salir le contás al asistente cómo te fue.</p>
-      </div>
-      <div class="quien" id="quien"></div>
-    </section>
-
-    <section class="vista" id="v-lista" hidden>
-      <div class="buscar"><input id="q" type="search" placeholder="Buscar cliente, localidad o CUIT" autocomplete="off"></div>
-      <div class="filtros" id="filtros">
-        <button class="chip" data-f="prioridad" aria-pressed="true">Primero lo urgente</button>
-        <button class="chip" data-f="A" aria-pressed="false">A</button>
-        <button class="chip" data-f="B" aria-pressed="false">B</button>
-        <button class="chip" data-f="C" aria-pressed="false">C</button>
-        <button class="chip" data-f="todos" aria-pressed="false">Toda la cartera</button>
-      </div>
-      <div class="lista" id="lista"></div>
-    </section>
-
-    <section class="vista" id="v-chat" hidden>
-      <div class="hilo" id="hilo"></div>
-    </section>
-
-    <section class="vista" id="v-oficina" hidden>
-      <div class="lista" id="oficina"></div>
-    </section>
+    <div class="hilo" id="hilo"></div>
   </div>
 
-  <div class="acciones" id="acciones" hidden>
-    <button id="cancelar">Cancelar visita</button>
-    <button id="cerrar" class="fin">Cerrar relevamiento</button>
+  <div class="comp">
+    <textarea id="entrada" rows="1" placeholder="Escribí o dictá…" autocomplete="off"></textarea>
+    <button id="dictar" type="button" aria-label="Cómo dictar">🎤</button>
+    <button id="enviar" type="button" class="enviar" aria-label="Enviar">↑</button>
   </div>
-  <div class="comp" id="comp" hidden>
-    <textarea id="entrada" rows="1" placeholder="Contá cómo te fue…"></textarea>
-    <button id="enviar" aria-label="Enviar">↑</button>
-  </div>
-  <p class="pista" id="pista" hidden>Para dictar, tocá el micrófono de tu teclado y hablá normal.</p>
 </div>
 
 <script id="datos-clientes" type="application/json">__DATOS__</script>
