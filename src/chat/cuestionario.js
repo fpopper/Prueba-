@@ -113,7 +113,9 @@ export const CUESTIONARIO_BASE = [
     id: 'exhibicion',
     texto: '¿Tienen material nuestro a la vista (cartel, folletería, exhibidor)?',
     tipo: 'opciones',
-    opciones: ['Sí, bien exhibido', 'Algo, pero poco', 'Nada'],
+    // Sin comas: Notion no las admite en las opciones de un select, y la base
+    // de Preguntas del relevamiento tiene que decir exactamente lo mismo que el chat.
+    opciones: ['Bien exhibido', 'Algo pero poco', 'Nada'],
     obligatoria: true,
     busca: 'si hay cartelería o material de FACBSA a la vista',
   },
