@@ -5,6 +5,52 @@ WhatsApp**. Un solo hilo de chat conducido por un agente: el vendedor habla, el
 agente razona sobre la situación de esa cuenta y usa herramientas para ir a
 buscar los datos y para dejar lo relevado asentado.
 
+## A quién atiende
+
+**Exclusivamente distribuidoras de materiales eléctricos**: el mayorista con
+mostrador y depósito que le revende al electricista, al instalador y a la obra
+chica. Quedan fuera constructoras, distribuidoras de energía (EDESUR, EDENOR,
+ENERSA), fabricantes e industria.
+
+En los datos, `Actividad = "Distribuidor eléctrico"` y `Canal = "Distribuidor"`
+coinciden uno a uno: **203 clientes A/B/C, $4.150M en 12 meses, el 51,8% de la
+facturación**. Esa es la cartera. Si el vendedor nombra un cliente de otro
+rubro, la herramienta se lo marca como fuera de alcance al agente, que lo avisa
+y le pasa la ficha igual aclarando que las reglas del canal no aplican.
+
+Registrado en Notion como regla **#16, estado "A validar"**.
+
+### Qué cambia por ser este canal
+
+El asistente no razona igual sobre un mayorista que sobre una obra. Lo que
+tiene incorporado:
+
+- **Sell-in no es sell-out.** Lo que nos factura es lo que entró al depósito.
+  Lo que decide la próxima compra es lo que salió del mostrador.
+- **Sin stock no hay venta.** Si el mostrador no tiene jabalina FACBSA, le vende
+  la del competidor al electricista que entró a comprarla. El quiebre no aparece
+  en ningún número.
+- **La góndola es espacio disputado.** Dejar de comprar una familia entera,
+  aunque el total aguante, es haber perdido ese lugar.
+- **El que decide no es el que atiende**, pero el del mostrador es quien le
+  recomienda la marca al electricista. Hay que trabajar a los dos.
+- **Cada cuánto repone** importa tanto como cuánto compra.
+- **La norma IRAM es la ventaja** contra el importado barato.
+
+Reglas que se ajustaron: la inactividad usa sólo el plazo de Distribuidor
+(60 días alarma, 120 perdido) y se eliminó la pregunta por pliego y
+homologación, que sólo tenía sentido en distribuidoras de energía.
+
+### Dos señales nuevas, propias del canal
+
+| Señal | Cómo se calcula | Por qué importa |
+|---|---|---|
+| **Góndola perdida** (`perd`) | familia comprada en los 12 meses anteriores (≥$100k y ≥3% de su total) y ≤5% de eso en los últimos 12 | la tapa el número grueso: **43 de 203 distribuidores** perdieron al menos una familia entera con la facturación total intacta |
+| **Frecuencia de reposición** (`meses`) | en cuántos de los últimos 12 meses compró | distingue al que repone seguido del que compra fuerte una vez al año y se queda sin |
+
+Ejemplo real: ARGELEC S.A. sigue comprando 11 de 12 meses, pero dejó de
+comprar Conduweld 30% ($24,6M el año anterior) y Soldadura ($10,5M).
+
 ## Quién conduce
 
 No hay guion. En cada mensaje se llama a Claude con el diálogo completo, las
@@ -75,12 +121,13 @@ queda a pie.
 
 ## Cliente de prueba
 
-`ZZ PRUEBA — ELECTRICIDAD EL ENSAYO` existe en la base de Clientes de Notion
-(con dos contactos ficticios), en `fichas.json` y en `ventas.json` con 18
-comprobantes sintéticos. Sus números están puestos para que disparen los cuatro
-tipos de desafío: caída de trimestre (−26%), días sin comprar (73, siendo
-Distribuidor), gap de tomacables (240 jabalinas contra 95) y marca de riesgo en
-Mirol.
+`ZZ PRUEBA — ELECTRICIDAD EL ENSAYO` es una distribuidora de materiales y
+existe en la base de Clientes de Notion (con dos contactos ficticios), en
+`fichas.json` y en `ventas.json` con 19 comprobantes sintéticos. Sus números
+están puestos para que disparen todos los tipos de desafío a la vez: góndola
+perdida (pararrayos, $1,8M el año anterior y nada este año), marca de riesgo en
+Mirol, caída de trimestre (−26%), días sin comprar (73, siendo Distribuidor) y
+gap de tomacables (240 jabalinas contra 95).
 
 Todo lo que se releve contra él sale marcado `[PRUEBA]` en el título de la
 visita y en Observaciones, así se borra en bloque sin tocar un dato real.

@@ -45,6 +45,17 @@ const CUESTIONARIO_LOCAL = [
 let CUESTIONARIO = CUESTIONARIO_LOCAL.slice();
 let COMPETIDORES = ["GenRod","Argenjab","Metal Ce","Metali","Priolo","LCT"];
 
+/* ---------------------------------------------------------------------------
+   A QUIEN ATIENDE: solo distribuidoras de materiales electricos — el mayorista
+   con mostrador y deposito que le revende al electricista. No constructoras, no
+   distribuidoras de energia (EDESUR y companía), no fabricantes, no industria.
+   En los datos, Actividad "Distribuidor eléctrico" y Canal "Distribuidor"
+   coinciden uno a uno: 203 clientes, el 52% de la facturacion.
+--------------------------------------------------------------------------- */
+const ACTIVIDAD_FOCO = "Distribuidor eléctrico";
+const esDistribuidor = c => c.act === ACTIVIDAD_FOCO || c.can === "Distribuidor";
+const CARTERA = CLIENTES.filter(esDistribuidor);
+
 /* --- reglas de negocio (las mismas del asistente) --- */
 const PLAZOS = {
   "Distribuidor":{d:60,p:120}, "Distribuidora eléctrica":{d:120,p:240},
@@ -81,6 +92,11 @@ function alertas(c){
   else if (c.dias >= pl.p) out.push({n:"CRITICO",t:`Sin comprar hace ${c.dias} días. Cuenta prácticamente perdida.`});
   else if (c.dias >= pl.d) out.push({n:"ALERTA",t:`Sin comprar hace ${c.dias} días (para ${c.can||"este canal"} ya es mucho).`});
   if (gap > 0) out.push({n:"OPORTUNIDAD",t:`Gap de tomacables: compra ${uds(c.jab)} jabalinas y sólo ${uds(c.tom)} tomacables. Faltan ${uds(gap)}.`});
+  /* Que deje de comprar una familia entera es perder la gondola, aunque el total aguante. */
+  (c.perd || []).forEach(([fam, monto]) =>
+    out.push({n:"CRITICO", t:`Perdió la góndola de ${fam}: el año pasado nos compró ${pesos(monto)} y este año nada.`}));
+  if (c.meses !== undefined && c.meses <= 2 && c.f12 >= 2e6)
+    out.push({n:"ALERTA", t:`Repone ${c.meses === 1 ? "una sola vez" : "dos veces"} en el año y compra fuerte: o tiene stock parado o se queda sin.`});
   if (marcas) out.push({n:"CRITICO",t:`Anotado en el sistema: ${marcas}. Verificalo antes de tomar pedido.`});
   return out;
 }
@@ -99,12 +115,14 @@ function armarFicha(c){
   if (c.vTrim !== null) L.push(`${flecha(c.vTrim)} último trimestre: ${pct(c.vTrim)}`);
   L.push(c.ult ? `🗓️ Última compra: ${fecha(c.ult)} (hace ${c.dias} días · para ${c.can||"este canal"} el límite es ${pl.d})`
                : "🗓️ Sin compras registradas en el período.");
-  if (c.ops) L.push(`🧾 ${c.ops} operaciones en 12 meses`);
+  if (c.ops) L.push(`🧾 ${c.ops} operaciones · repone ${c.meses !== undefined ? c.meses : "?"} de los últimos 12 meses`);
   if (c.ven) L.push(`👤 Atiende: ${c.ven}`);
   if (c.pag) L.push(`💳 Condición de pago: ${c.pag}`);
   if (c.con && c.con.length){ L.push(""); L.push("*Con quién hablar:*");
     c.con.forEach(p => L.push(`• ${p.nom}${p.car?" — "+p.car:""}${p.rol?" ("+p.rol+")":""}${p.tel?" · "+p.tel:""}`)); }
-  if (c.fam && c.fam.length){ L.push(""); L.push("*Qué compra:*"); c.fam.forEach(([k,v]) => L.push(`• ${k}: ${pesos(v)}`)); }
+  if (c.fam && c.fam.length){ L.push(""); L.push("*Qué tiene en góndola:*"); c.fam.forEach(([k,v]) => L.push(`• ${k}: ${pesos(v)}`)); }
+  if (c.perd && c.perd.length){ L.push(""); L.push("*Góndola que perdimos:*");
+    c.perd.forEach(([k,v]) => L.push(`• ${k}: ${pesos(v)} el año pasado, nada este año`)); }
   if (c.jab >= 1){ L.push("");
     L.push(`🔩 Jabalinas ${uds(c.jab)} u. · Tomacables ${uds(c.tom)} u.` + (gap>0 ? ` — faltan ${uds(gap)}` : " — ratio sano")); }
   const al = alertas(c);
@@ -115,6 +133,12 @@ function armarFicha(c){
 
 function preguntasEspeciales(c){
   const out = [], pl = plazos(c), gap = gapTomacables(c), marcas = marcasDe(c);
+  (c.perd || []).forEach(([fam, monto]) =>
+    out.push({p:`El año pasado nos compraba ${fam} por ${pesos(monto)} y este año nada. ¿Quién le está surtiendo esa góndola ahora, y por qué nos la sacaron?`,
+              m:"Perder una familia entera es perder el espacio en el mostrador, no una venta puntual."}));
+  if (marcas)
+    out.push({p:`Figura anotado "${marcas}". ¿Sigue vigente o ya se regularizó?`,
+              m:"Es una nota vieja de un vendedor, no un estado verificado. Chequealo antes de tomar pedido."});
   if ((c.seg==="A"||c.seg==="B") && c.vTrim!==null && c.vTrim<=-CAIDA)
     out.push({p:"¿Por qué bajaron las compras? ¿Entró otro proveedor, se frenó una obra, o hubo un problema con nosotros?",
               m:`Es segmento ${c.seg} y cayó ${pct(Math.abs(c.vTrim))} en el trimestre.`});
@@ -124,12 +148,9 @@ function preguntasEspeciales(c){
   if (gap > 0)
     out.push({p:`Compra ${uds(c.jab)} jabalinas y sólo ${uds(c.tom)} tomacables. ¿A quién le compra los tomacables?`,
               m:`Faltan ${uds(gap)} tomacables para el ratio normal.`});
-  if (c.can === "Distribuidora eléctrica")
-    out.push({p:"¿Estamos homologados en su pliego? ¿Cuándo abre la próxima licitación o renovación?",
-              m:"En distribuidoras la compra pasa por pliego: lo que manda es la homologación."});
-  if (marcas)
-    out.push({p:`Figura anotado "${marcas}". ¿Sigue vigente o ya se regularizó?`,
-              m:"Es una nota vieja de un vendedor, no un estado verificado."});
+  if (c.meses !== undefined && c.meses <= 3 && c.f12 >= 2e6)
+    out.push({p:`Repone pocas veces al año y compra fuerte. ¿Se le queda stock parado, o se queda sin y le vende otra marca al que entra?`,
+              m:`Compró en ${c.meses} de los últimos 12 meses.`});
   if (c.part >= CONC_CRIT)
     out.push({p:"¿Hay riesgo de que esta cuenta se abra a otro proveedor? ¿Qué los tiene con nosotros?",
               m:`Concentra el ${pct(c.part,1)} de la facturación de FACBSA.`});
@@ -258,8 +279,11 @@ const limpiarPedido = t => String(t||"").replace(RELLENO,"").replace(/[.?!]+$/,"
 function buscarClientes(q){
   const v = normal(q);
   if (!v) return [];
-  const mios = CLIENTES.filter(c => c.ven === S.vendedor);
-  const pool = mios.concat(CLIENTES.filter(c => c.ven !== S.vendedor));
+  /* Primero los distribuidores del vendedor; los de otro canal se encuentran
+     igual, pero el agente avisa que quedan fuera del alcance. */
+  const mios  = CARTERA.filter(c => c.ven === S.vendedor);
+  const otros = CARTERA.filter(c => c.ven !== S.vendedor);
+  const pool  = mios.concat(otros, CLIENTES.filter(c => !esDistribuidor(c)));
   const palabras = v.split(" ").filter(w => w.length >= 3);
   const capas = [
     c => normal(c.n) === v,
@@ -281,7 +305,7 @@ function prioridad(c){
   return 3;
 }
 function urgentes(n){
-  return CLIENTES.filter(c => c.ven === S.vendedor && !c.prueba)
+  return CARTERA.filter(c => c.ven === S.vendedor && !c.prueba)
     .sort((a,b) => prioridad(a)-prioridad(b) || b.f12-a.f12).slice(0,n);
 }
 
@@ -674,7 +698,10 @@ function resumenCliente(c){
   return { cliente:c.n, segmento:c.seg, canal:c.can, actividad:c.act,
            localidad:[c.loc,c.prov].filter(Boolean).join(", ") || undefined,
            facturacion_12m:c.f12, ultima_compra:c.ult, dias_sin_comprar:c.dias,
-           atiende:c.ven, es_cliente_de_prueba:c.prueba ? true : undefined };
+           repone_meses_de_12:c.meses, gondola_perdida:(c.perd||[]).map(x=>x[0]),
+           atiende:c.ven, es_cliente_de_prueba:c.prueba ? true : undefined,
+           fuera_de_alcance: esDistribuidor(c) ? undefined :
+             `No es distribuidora de materiales: es ${c.act || "de actividad sin clasificar"}. Este asistente atiende solo distribuidoras.` };
 }
 const PERIODO = { type:"string", description:"Mes en formato AAAA-MM." };
 
@@ -688,7 +715,8 @@ function herramientas(){
         actividad("buscando el cliente…");
         const q = String((a&&a.texto) || "").trim();
         const cs = q ? buscarClientes(limpiarPedido(q)) : urgentes(6);
-        return { encontrados: cs.length, clientes: cs.slice(0,6).map(resumenCliente) };
+        return { encontrados: cs.length, clientes: cs.slice(0,6).map(resumenCliente),
+                 cartera_del_vendedor: CARTERA.filter(c => c.ven === S.vendedor && !c.prueba).length };
       } },
 
     { name:"ficha_cliente",
@@ -702,6 +730,9 @@ function herramientas(){
         fijarCliente(c);
         burbuja("ficha", armarFicha(c));
         return { cliente:c.n, ficha_ya_mostrada_al_vendedor:true,
+                 es_distribuidora_de_materiales: esDistribuidor(c),
+                 fuera_de_alcance: esDistribuidor(c) ? undefined :
+                   `Ojo: ${c.n} es ${c.act || "de actividad sin clasificar"}, no una distribuidora de materiales. Avisale al vendedor: las reglas del canal distribuidor no le aplican.`,
                  alertas: alertas(c).map(x => `${x.n}: ${x.t}`),
                  puntos_a_averiguar: preguntasEspeciales(c).map(e => ({ pregunta:e.p, por_que:e.m })) };
       } },
@@ -835,7 +866,7 @@ function reglas(){
     .join("\n");
   return `Sos el asistente de visitas de la fuerza de ventas de FACBSA, fábrica argentina de conductores bimetálicos para puesta a tierra (jabalinas, tomacables, cable IRAM 2467, conectores, pararrayos, soldadura exotérmica, conjuntos). Hablás por chat con un vendedor que está en la calle.
 
-Hoy es ${hoy}. El vendedor es ${S.vendedor || "todavía no identificado"}${S.vendedor ? ` y tiene ${CLIENTES.filter(x=>x.ven===S.vendedor&&!x.prueba).length} clientes en cartera` : ""}.
+Hoy es ${hoy}. El vendedor es ${S.vendedor || "todavía no identificado"}${S.vendedor ? ` y tiene ${CARTERA.filter(x=>x.ven===S.vendedor&&!x.prueba).length} distribuidoras en cartera` : ""}.
 ${c ? `La visita en curso es a ${c.n} (segmento ${c.seg||"-"}, ${c.can||"-"}, ${[c.loc,c.prov].filter(Boolean).join(", ")}).` : "Todavía no hay un cliente abierto."}
 
 CÓMO TRABAJÁS
@@ -847,12 +878,24 @@ Tenés herramientas. Usalas en vez de suponer:
 - Cuando tengas lo de la visita, notion_guardar_visita. El vendedor confirma antes de que se escriba.
 - Si avisa que cambió un dato de la ficha (horario, teléfono, quién decide, una condición), notion_actualizar_cliente.
 
+A QUIÉN ATENDÉS
+Exclusivamente DISTRIBUIDORAS DE MATERIALES ELÉCTRICOS: el mayorista con mostrador y depósito que le revende al electricista, al instalador y a la obra chica. Son ${CARTERA.length} clientes y la mitad de la facturación de FACBSA.
+No atendés constructoras, distribuidoras de energía (EDESUR, EDENOR, ENERSA y demás), fabricantes ni industria. Si el vendedor nombra un cliente de otro tipo, la herramienta te lo va a marcar como fuera de alcance: decíselo en una línea y pasale la ficha igual si la pide, aclarando que las reglas de abajo no le aplican.
+
+CÓMO SE LEE UN DISTRIBUIDOR
+No compra para usar: compra para revender. Eso cambia qué mirar.
+- Lo que nos factura es sell-in. Lo que decide la próxima compra es el sell-out: si lo que compró quedó en el depósito, no repone por más relación que haya.
+- Sin stock no hay venta. Si el mostrador no tiene jabalina nuestra, le vende la del competidor al electricista que entró a comprarla. El quiebre de stock es plata perdida que no aparece en ningún número.
+- La góndola es espacio disputado. Que deje de comprar una familia entera, aunque el total aguante, significa que otro se quedó con ese lugar: es la señal más grave y la más fácil de pasar por alto.
+- El que decide la compra casi nunca es el que atiende el mostrador, pero el del mostrador es el que le recomienda la marca al electricista. Hay que trabajar a los dos.
+- Cada cuánto repone importa tanto como cuánto compra. El que compra fuerte una o dos veces al año tiene stock parado o se queda sin.
+- Nuestra ventaja es la norma IRAM: contra el importado barato lo que vende es el certificado, sobre todo si el distribuidor trabaja obra.
+
 REGLAS DEL NEGOCIO QUE YA SABÉS
-- Inactividad según canal: Distribuidor 60 días es alarma y 120 es cuenta perdida; Distribuidora eléctrica y Venta Directa 120/240; obra 180/365; el resto 90/180.
+- Inactividad en este canal: 60 días sin comprar es alarma, 120 lo da por perdido.
 - Una cuenta que concentra 10% o más de la facturación total de FACBSA es de alta exposición; 20% o más es estructural.
 - Un segmento A o B que cae 15% o más en el trimestre es riesgo de churn: hay que entender por qué.
 - Quien compra jabalinas debería comprar alrededor de 2 tomacables cada 3 jabalinas. Si compra menos, los está comprando en otro lado.
-- En distribuidoras eléctricas la compra pasa por pliego: lo que manda es la homologación.
 - El reporte va de ${V_DESDE} a ${V_HASTA} (corte ${V_CORTE}). Los últimos 12 meses son ${V_MES[V_MES.length-12]} a ${V_HASTA}.
 - El reporte arranca en 2022 y la inflación es alta: si comparás pesos de años distintos, aclarálo o pasá a dólares.
 - Competidores conocidos: ${COMPETIDORES.join(", ")}.
@@ -1027,9 +1070,9 @@ function preguntarQuien(){
 function elegirVendedor(v){
   S.vendedor = v; guardar("facbsa.vendedor", v);
   S.turnos = []; S.cliente = null; S.visita = null;
-  const n = CLIENTES.filter(c => c.ven === v && !c.prueba).length;
-  barra("Asistente de visitas", v + " · " + n + (n===1?" cliente":" clientes"), true);
-  const abre = `Listo${vocativo(v)}. ¿A quién vas a visitar? Decime el nombre, o preguntame lo que quieras del cliente y lo busco.`;
+  const n = CARTERA.filter(c => c.ven === v && !c.prueba).length;
+  barra("Asistente de visitas", v + " · " + n + (n===1?" distribuidora":" distribuidoras"), true);
+  const abre = `Listo${vocativo(v)}. Tenés ${n} ${n===1?"distribuidora":"distribuidoras"} en cartera.\n¿A quién vas a visitar? Decime el nombre, o preguntame lo que quieras del cliente y lo busco.`;
   burbuja("bot", abre);
   S.turnos.push({ role:"assistant", content: abre });
   const op = urgentes(3).map(c => c.n);
@@ -1039,6 +1082,7 @@ function elegirVendedor(v){
 
 function ayuda(){
   burbuja("bot", ["*Para qué te sirvo*","",
+    "Atiendo distribuidoras de materiales eléctricos. Si el cliente es de otro rubro te lo aviso.","",
     "Decime a quién vas a visitar y te paso la ficha y lo que conviene resolver adentro.",
     "Preguntame lo que quieras de ese cliente: cuánto lleva, qué compra, cuándo fue el último pedido,",
     "con quién conviene hablar, qué pasó la visita anterior. Lo busco en el reporte y en Notion.",

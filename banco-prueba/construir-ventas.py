@@ -66,7 +66,8 @@ if iPrueba is not None:
     TOM = nuevoArt("TOMACABLE STANDARD 5/8 (PRUEBA)",        "TOMA STANDARD")
     CAB = nuevoArt("CABLE AW 7 HILOS IRAM 2467 (PRUEBA)",     "ALAMBRES AW")
     CON = nuevoArt("CONECTOR BIMETALICO (PRUEBA)",            "CONECTORES")
-    KILOS = {JAB: 4.9, TOM: 0.9, CAB: 0.32, CON: 0.15}
+    PAR = nuevoArt("PARARRAYOS PUNTA SIMPLE (PRUEBA)",        "PARARRAYOS")
+    KILOS = {JAB: 4.9, TOM: 0.9, CAB: 0.32, CON: 0.15, PAR: 2.4}
     TC = {"2024-10":1000,"2024-11":1010,"2024-12":1030,"2025-01":1070,"2025-02":1090,
           "2025-03":1105,"2025-04":1120,"2025-05":1160,"2025-06":1215,"2025-07":1270,
           "2025-08":1300,"2025-09":1320,"2025-10":1340,"2025-11":1365,"2025-12":1390,
@@ -79,6 +80,8 @@ if iPrueba is not None:
         ("2024-12", 12, 990097, [(CAB, 350, 1470000)]),
         ("2025-01", 22, 990098, [(CAB, 300, 1320000), (CON, 60, 258000)]),
         ("2025-02", 20, 990099, [(JAB, 45, 2070000), (CON, 40, 180000)]),
+        # pararrayos solo en la ventana anterior: deja la gondola a los 12 meses
+        ("2025-03", 18, 990099.5 and 990113, [(PAR, 12, 1800000)]),
         ("2025-04", 11, 990100, [(JAB, 60, 3000000), (TOM, 25,  475000)]),
         ("2025-05", 28, 990101, [(JAB, 50, 2550000), (TOM, 24,  444000)]),
         ("2025-07", 19, 990102, [(JAB, 55, 2970000), (CAB, 250, 1250000)]),
@@ -99,6 +102,36 @@ if iPrueba is not None:
         for a, cant, pesos in items:
             filas.append([mesIdx[mes], iPrueba, a, cant, pesos,
                           round(pesos / TC[mes], 1), dia, cbFAC, nro, round(cant * KILOS[a], 1)])
+
+# --- senales propias del canal distribuidor, para todas las fichas ---
+# meses: cada cuanto repone.  perd: familias que tenia en gondola y dejo de comprar.
+mesL = D["mes"]
+w12, wPrev = set(mesL[-12:]), set(mesL[-24:-12])
+porCli = {}
+for r in filas:
+    porCli.setdefault(r[1], []).append(r)
+for j, f in enumerate(F):
+    mias = porCli.get(j, [])
+    act, prev = {}, {}
+    meses = set()
+    for r in mias:
+        m = mesL[r[0]]
+        rubro = D["rub"][art[r[2]][1]]
+        if m in w12:
+            act[rubro] = act.get(rubro, 0) + r[4]
+            meses.add(m)
+        elif m in wPrev:
+            prev[rubro] = prev.get(rubro, 0) + r[4]
+    f["meses"] = len(meses)
+    totPrev = sum(prev.values())
+    perdidas = []
+    for rubro, monto in prev.items():
+        if rubro == "(sin rubro)":
+            continue
+        hoy = act.get(rubro, 0)
+        if monto >= 100000 and monto >= 0.03 * totPrev and hoy <= 0.05 * monto:
+            perdidas.append([rubro, int(monto)])
+    f["perd"] = sorted(perdidas, key=lambda x: -x[1])[:4]
 
 filas.sort(key=lambda r: (r[0], r[8]))
 V = {"corte": D["meta"]["corte"], "mes": D["mes"], "rub": D["rub"],
